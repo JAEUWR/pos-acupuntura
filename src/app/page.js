@@ -19,7 +19,7 @@ export default function Home() {
                 <Header branch={branch} setBranch={setBranch} />
                 
                 {activeView === 'ventas' && <Ventas />}
-                {activeView === 'inventario' && <Inventario />}
+                {activeView === 'inventario' && <Inventario branch={branch} />}
                 {activeView === 'clientes' && <Clientes />}
                 {activeView === 'reportes' && <Reportes />}
                 {activeView === 'configuracion' && <Configuracion />}

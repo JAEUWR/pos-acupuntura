@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-export default function Inventario({ branch }) {
+export default function Inventario({ branch = 'napoles' }) {
     const [inventario, setInventario] = useState([]);
     const [showModal, setShowModal] = useState(false);
     
