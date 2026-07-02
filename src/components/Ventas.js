@@ -1,157 +1,132 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase'; // Asegúrate de tener exportado supabase aquí
 
-export default function Ventas() {
+export default function Ventas({ branch }) {
     const [barcode, setBarcode] = useState('');
     const [cart, setCart] = useState([]);
-    
-    // Base de datos simulada
-    const productsDB = {
-        '7502314482150': { code: '7502314482150', name: 'Consulta Acupuntura', price: 650.00 },
-        '6920568400019': { code: '6920568400019', name: 'Parche Tigre', price: 80.00 },
-        '6936508703225': { code: '6936508703225', name: 'Aceite Tigre', price: 80.00 },
-        '1122334455667': { code: '1122334455667', name: 'Agujas (Caja)', price: 250.00 }
-    };
+    const [productosDB, setProductosDB] = useState([]);
+
+    // 1. Cargar productos desde Supabase al iniciar
+    useEffect(() => {
+        const fetchProductos = async () => {
+            const { data } = await supabase.from('productos').select('*');
+            if (data) setProductosDB(data);
+        };
+        fetchProductos();
+    }, []);
+
+    // Mapear el nombre de la sede al ID numérico de la DB
+    const branchIdMap = { napoles: 1, roma: 2, centro: 3 };
+    const sucursalId = branchIdMap[branch] || 1;
 
     const handleSearch = () => {
-        const code = barcode.trim();
-        if (productsDB[code]) {
-            addToCart(productsDB[code]);
+        const product = productosDB.find(p => p.codigo_barras === barcode.trim());
+        if (product) {
+            addToCart(product);
             setBarcode('');
         } else {
-            alert('Producto no encontrado. Intenta con los botones de Añadir Rápido.');
+            alert('Producto no encontrado.');
         }
     };
 
     const addToCart = (product) => {
-        setCart(prevCart => {
-            const existing = prevCart.find(item => item.code === product.code);
-            if (existing) {
-                return prevCart.map(item => 
-                    item.code === product.code ? { ...item, qty: item.qty + 1 } : item
-                );
+        setCart(prev => {
+            const existing = prev.find(item => item.id === product.id);
+            if (existing) return prev.map(item => item.id === product.id ? { ...item, qty: item.qty + 1 } : item);
+            // Por defecto entra con precio general
+            return [...prev, { 
+                id: product.id, 
+                code: product.codigo_barras, 
+                name: product.nombre, 
+                qty: 1, 
+                tipo_precio: 'general',
+                precio_aplicado: product.precio,
+                opciones_precio: { general: product.precio, mayoreo: product.precio_mayoreo, distribuidor: product.precio_distribuidor }
+            }];
+        });
+    };
+
+    const updatePriceType = (id, tipo) => {
+        setCart(prev => prev.map(item => {
+            if (item.id === id) {
+                return { ...item, tipo_precio: tipo, precio_aplicado: item.opciones_precio[tipo] };
             }
-            return [...prevCart, { ...product, qty: 1 }];
-        });
+            return item;
+        }));
     };
 
-    const updateQty = (code, delta) => {
-        setCart(prevCart => {
-            return prevCart.map(item => {
-                if (item.code === code) {
-                    const newQty = item.qty + delta;
-                    return newQty > 0 ? { ...item, qty: newQty } : item;
-                }
-                return item;
-            });
-        });
-    };
+    const subtotal = cart.reduce((acc, item) => acc + (item.precio_aplicado * item.qty), 0);
 
-    const removeItem = (code) => {
-        setCart(prevCart => prevCart.filter(item => item.code !== code));
-    };
-
-    const handleCheckout = () => {
-        if (cart.length === 0) return alert('El carrito está vacío.');
-        
-        // Simulación de latencia de red para que se vea real
+    const handleCheckout = async () => {
+        if (cart.length === 0) return alert('Carrito vacío.');
         const btn = document.getElementById('btn-cobrar');
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> PROCESANDO...';
         btn.disabled = true;
-        
-        setTimeout(() => {
-            alert(`¡Venta procesada con éxito por $${subtotal.toFixed(2)}!\nLa base de datos multisede se ha actualizado.`);
-            setCart([]);
-            btn.innerHTML = '<i class="fa-solid fa-cash-register"></i> COBRAR [F12]';
-            btn.disabled = false;
-        }, 800);
-    };
 
-    const subtotal = cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
+        // Preparamos el JSON para Supabase
+        const payloadItems = cart.map(item => ({
+            producto_id: item.id,
+            qty: item.qty,
+            precio: item.precio_aplicado,
+            tipo_precio: item.tipo_precio
+        }));
+
+        // Llamamos a la función SQL que creamos
+        const { error } = await supabase.rpc('procesar_venta', {
+            p_sucursal_id: sucursalId,
+            p_cliente_id: null, // Aquí podrías pasar el ID de un cliente seleccionado
+            p_total: subtotal,
+            p_items: payloadItems
+        });
+
+        if (error) {
+            alert('Error al cobrar: ' + error.message);
+        } else {
+            alert('Venta procesada. El stock ha sido actualizado.');
+            setCart([]);
+        }
+        btn.innerHTML = '<i class="fa-solid fa-cash-register"></i> COBRAR';
+        btn.disabled = false;
+    };
 
     return (
         <div className="view-section active">
             <div className="register-section">
+                {/* Buscador igual que antes */}
                 <div className="search-bar">
-                    <input 
-                        type="text" 
-                        value={barcode}
-                        onChange={(e) => setBarcode(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                        placeholder="Escanea o teclea el Código de Barras..." 
-                        style={{ flex: 1, padding: '15px', background: 'var(--bg-dark)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '8px' }}
-                    />
-                    <button className="btn-action btn-primary" onClick={handleSearch}>
-                        <i className="fa-solid fa-magnifying-glass"></i> BUSCAR
-                    </button>
+                    <input type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} placeholder="Código de Barras..." style={{flex:1, padding:'15px', background:'var(--bg-dark)', color:'white'}}/>
+                    <button className="btn-action btn-primary" onClick={handleSearch}>BUSCAR</button>
                 </div>
-                <div className="cart-table-container">
-                    <table className="data-table">
-                        <thead>
-                            <tr>
-                                <th>Descripción</th>
-                                <th>Precio</th>
-                                <th>Cant.</th>
-                                <th>Importe</th>
-                                <th></th>
+                
+                <table className="data-table">
+                    <thead>
+                        <tr><th>Producto</th><th>Tipo Precio</th><th>Precio Unit.</th><th>Cant.</th><th>Importe</th></tr>
+                    </thead>
+                    <tbody>
+                        {cart.map((item, idx) => (
+                            <tr key={idx}>
+                                <td>{item.name}</td>
+                                <td>
+                                    <select value={item.tipo_precio} onChange={(e) => updatePriceType(item.id, e.target.value)} style={{background:'var(--bg-dark)', color:'white', padding:'5px'}}>
+                                        <option value="general">General</option>
+                                        <option value="mayoreo">Mayoreo</option>
+                                        <option value="distribuidor">Distribuidor</option>
+                                    </select>
+                                </td>
+                                <td>${item.precio_aplicado.toFixed(2)}</td>
+                                <td>{item.qty}</td>
+                                <td>${(item.precio_aplicado * item.qty).toFixed(2)}</td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            {cart.length === 0 ? (
-                                <tr>
-                                    <td colSpan="5" style={{textAlign: 'center', padding: '20px', color: 'var(--text-muted)'}}>
-                                        Carrito vacío. Escanea un producto.
-                                    </td>
-                                </tr>
-                            ) : (
-                                cart.map((item, idx) => (
-                                    <tr key={idx}>
-                                        <td><strong>{item.name}</strong><br/><small style={{color:'var(--text-muted)'}}>{item.code}</small></td>
-                                        <td>${item.price.toFixed(2)}</td>
-                                        <td>
-                                            <div style={{display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--bg-panel)', padding: '5px', borderRadius: '6px', width: 'max-content'}}>
-                                                <button onClick={() => updateQty(item.code, -1)} style={{background: 'var(--bg-lighter)', color: 'white', border: 'none', width: '28px', height: '28px', borderRadius: '4px', cursor: 'pointer'}}>-</button>
-                                                <span style={{minWidth: '20px', textAlign: 'center'}}>{item.qty}</span>
-                                                <button onClick={() => updateQty(item.code, 1)} style={{background: 'var(--bg-lighter)', color: 'white', border: 'none', width: '28px', height: '28px', borderRadius: '4px', cursor: 'pointer'}}>+</button>
-                                            </div>
-                                        </td>
-                                        <td>${(item.price * item.qty).toFixed(2)}</td>
-                                        <td style={{textAlign: 'right'}}>
-                                            <button onClick={() => removeItem(item.code)} style={{background: 'transparent', color: 'var(--text-muted)', border: 'none', cursor: 'pointer', fontSize: '1.2rem'}}>
-                                                <i className="fa-solid fa-trash-can"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                        ))}
+                    </tbody>
+                </table>
             </div>
             
             <div className="checkout-section">
-                <div className="quick-products">
-                    <h3 style={{marginBottom: '15px', color: 'var(--text-main)', fontSize: '1rem'}}>
-                        <i className="fa-solid fa-bolt" style={{color: 'var(--accent)'}}></i> Añadir Rápido
-                    </h3>
-                    <div className="product-grid" style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px'}}>
-                        {Object.values(productsDB).map((prod, idx) => (
-                            <div key={idx} onClick={() => addToCart(prod)} className="product-card" style={{background: 'var(--bg-dark)', padding: '15px', borderRadius: '8px', textAlign: 'center', cursor: 'pointer', border: '1px solid var(--border-color)'}}>
-                                <span style={{fontSize: '0.9rem'}}>{prod.name}</span>
-                                <span style={{color: 'var(--success)', fontWeight: 'bold', display: 'block', marginTop: '5px'}}>${prod.price.toFixed(2)}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-                
                 <div className="totals-box">
-                    <div className="totals-row grand-total">
-                        <span>TOTAL:</span>
-                        <span style={{color: 'var(--success)'}}>${subtotal.toFixed(2)}</span>
-                    </div>
-                    <button id="btn-cobrar" onClick={handleCheckout} className="pay-btn" style={{width: '100%', padding: '20px', background: 'var(--primary-red)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '1.3rem', fontWeight: 'bold', cursor: 'pointer', marginTop: '20px'}}>
-                        <i className="fa-solid fa-cash-register"></i> COBRAR [F12]
-                    </button>
+                    <div className="totals-row grand-total"><span>TOTAL:</span><span style={{color: 'var(--success)'}}>${subtotal.toFixed(2)}</span></div>
+                    <button id="btn-cobrar" onClick={handleCheckout} className="pay-btn"><i className="fa-solid fa-cash-register"></i> COBRAR</button>
                 </div>
             </div>
         </div>

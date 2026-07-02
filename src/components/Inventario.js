@@ -1,74 +1,82 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
-export default function Inventario() {
-    const [productos, setProductos] = useState([
-        { id: '7502314482150', name: 'Consulta Acupuntura', price: 650.00, stockNapoles: 999, stockRoma: 999, stockCentro: 999 },
-        { id: '6920568400019', name: 'Parche Tigre Sobre', price: 80.00, stockNapoles: 24, stockRoma: 50, stockCentro: 12 },
-        { id: '6936508703225', name: 'Aceite Tigre', price: 80.00, stockNapoles: 49, stockRoma: 20, stockCentro: 5 },
-        { id: '1122334455667', name: 'Agujas Acupuntura (Caja)', price: 250.00, stockNapoles: 8, stockRoma: 10, stockCentro: 8 }
-    ]);
+export default function Inventario({ branch }) {
+    const [inventario, setInventario] = useState([]);
+    const [showModal, setShowModal] = useState(false);
+    
+    // Mapeo
+    const branchIdMap = { napoles: 1, roma: 2, centro: 3 };
+    const sucursalId = branchIdMap[branch] || 1;
 
-    const promptAddProduct = () => {
-        const name = prompt("Ingrese el nombre del nuevo producto:");
-        if (!name) return;
-        const price = prompt("Ingrese el precio unitario:");
-        if (!price || isNaN(price)) return alert("Precio inválido");
+    const fetchInventario = async () => {
+        // Hacemos un JOIN entre productos e inventario
+        const { data, error } = await supabase
+            .from('inventario')
+            .select('stock, productos(id, codigo_barras, nombre, precio, precio_mayoreo)')
+            .eq('sucursal_id', sucursalId);
         
-        const newCode = '88800' + Math.floor(Math.random() * 10000);
-        setProductos([...productos, {
-            id: newCode, name, price: parseFloat(price),
-            stockNapoles: 10, stockRoma: 10, stockCentro: 10
-        }]);
+        if (data) setInventario(data);
+    };
+
+    useEffect(() => {
+        fetchInventario();
+    }, [branch]);
+
+    const handleUpdateStock = async (producto_id, nuevoStock) => {
+        const { error } = await supabase
+            .from('inventario')
+            .update({ stock: nuevoStock })
+            .match({ producto_id: producto_id, sucursal_id: sucursalId });
+        
+        if (!error) fetchInventario();
     };
 
     return (
         <div className="view-section active">
             <div className="panel">
-                <h2><i className="fa-solid fa-boxes-stacked"></i> Inventario Global Multisede</h2>
-                <div style={{marginBottom: '15px'}}>
-                    <button className="btn-action btn-primary" onClick={promptAddProduct} style={{marginRight: '10px'}}>
-                        <i className="fa-solid fa-plus"></i> Nuevo Producto
-                    </button>
-                    <button className="btn-action" onClick={() => alert('Generando Excel...')}>
-                        <i className="fa-solid fa-file-arrow-down"></i> Exportar a Excel
-                    </button>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                    <h2><i className="fa-solid fa-boxes-stacked"></i> Inventario - {branch.toUpperCase()}</h2>
+                    <button className="btn-action btn-primary" onClick={() => setShowModal(true)}>+ Nuevo Producto</button>
                 </div>
+                
                 <table className="data-table">
                     <thead>
-                        <tr>
-                            <th>Código Barras</th>
-                            <th>Producto</th>
-                            <th>Precio Unit.</th>
-                            <th>Stock Nápoles</th>
-                            <th>Stock Roma</th>
-                            <th>Stock Centro</th>
-                            <th>Estado</th>
-                        </tr>
+                        <tr><th>Código</th><th>Producto</th><th>Precio Gral.</th><th>Stock Actual</th><th>Ajustar Stock</th></tr>
                     </thead>
                     <tbody>
-                        {productos.map(prod => {
-                            const isLow = (prod.stockNapoles + prod.stockRoma + prod.stockCentro) < 30 && prod.stockNapoles < 900;
-                            return (
-                                <tr key={prod.id}>
-                                    <td style={{color: 'var(--text-muted)', fontFamily: 'monospace'}}>{prod.id}</td>
-                                    <td><strong>{prod.name}</strong></td>
-                                    <td>${prod.price.toFixed(2)}</td>
-                                    <td>{prod.stockNapoles > 900 ? 'Ilimitado' : prod.stockNapoles}</td>
-                                    <td>{prod.stockRoma > 900 ? 'Ilimitado' : prod.stockRoma}</td>
-                                    <td>{prod.stockCentro > 900 ? 'Ilimitado' : prod.stockCentro}</td>
-                                    <td>
-                                        {isLow 
-                                            ? <span style={{color:'var(--primary-red)'}}><i className="fa-solid fa-triangle-exclamation"></i> Bajo Stock</span>
-                                            : <span style={{color:'var(--success)'}}><i className="fa-solid fa-circle-check"></i> Óptimo</span>
-                                        }
-                                    </td>
-                                </tr>
-                            );
-                        })}
+                        {inventario.map((inv, idx) => (
+                            <tr key={idx}>
+                                <td>{inv.productos.codigo_barras}</td>
+                                <td>{inv.productos.nombre}</td>
+                                <td>${inv.productos.precio}</td>
+                                <td style={{color: inv.stock < 10 ? 'var(--primary-red)' : 'white'}}>{inv.stock}</td>
+                                <td>
+                                    <button onClick={() => handleUpdateStock(inv.productos.id, inv.stock - 1)} style={{marginRight:'5px', padding:'5px 10px'}}>-</button>
+                                    <button onClick={() => handleUpdateStock(inv.productos.id, inv.stock + 1)} style={{padding:'5px 10px'}}>+</button>
+                                </td>
+                            </tr>
+                        ))}
                     </tbody>
                 </table>
             </div>
+
+            {/* MODAL CREAR PRODUCTO */}
+            {showModal && (
+                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
+                    <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '10px', width: '400px'}}>
+                        <h3>Registrar Nuevo Producto</h3>
+                        <input type="text" id="new_code" placeholder="Código de barras" style={{width:'100%', padding:'10px', margin:'10px 0', background:'var(--bg-dark)', color:'white'}} />
+                        <input type="text" id="new_name" placeholder="Nombre del producto" style={{width:'100%', padding:'10px', margin:'10px 0', background:'var(--bg-dark)', color:'white'}} />
+                        <input type="number" id="new_price" placeholder="Precio General ($)" style={{width:'100%', padding:'10px', margin:'10px 0', background:'var(--bg-dark)', color:'white'}} />
+                        <div style={{display:'flex', gap:'10px', marginTop:'20px'}}>
+                            <button className="btn-action btn-primary" style={{flex:1}} onClick={() => alert('Falta conectar Insert a Supabase aquí')}>Guardar</button>
+                            <button className="btn-action" style={{flex:1}} onClick={() => setShowModal(false)}>Cancelar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
