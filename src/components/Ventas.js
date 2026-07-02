@@ -1,22 +1,34 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase'; // Asegúrate de tener exportado supabase aquí
+import { supabase } from '../lib/supabase';
 
-export default function Ventas({ branch }) {
+export default function Ventas({ branch = 'napoles' }) {
     const [barcode, setBarcode] = useState('');
     const [cart, setCart] = useState([]);
     const [productosDB, setProductosDB] = useState([]);
+    const [clientesDB, setClientesDB] = useState([]);
+    const [selectedClient, setSelectedClient] = useState('');
+    
+    const [showCatalogModal, setShowCatalogModal] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    
+    // Modal para cliente nuevo exprés
+    const [showNewClientModal, setShowNewClientModal] = useState(false);
+    const [newClientName, setNewClientName] = useState('');
+    const [newClientPhone, setNewClientPhone] = useState('');
 
-    // 1. Cargar productos desde Supabase al iniciar
+    const fetchDatos = async () => {
+        const { data: prods } = await supabase.from('productos').select('*');
+        if (prods) setProductosDB(prods);
+
+        const { data: clis } = await supabase.from('clientes').select('*').order('nombre', { ascending: true });
+        if (clis) setClientesDB(clis);
+    };
+
     useEffect(() => {
-        const fetchProductos = async () => {
-            const { data } = await supabase.from('productos').select('*');
-            if (data) setProductosDB(data);
-        };
-        fetchProductos();
+        fetchDatos();
     }, []);
 
-    // Mapear el nombre de la sede al ID numérico de la DB
     const branchIdMap = { napoles: 1, roma: 2, centro: 3 };
     const sucursalId = branchIdMap[branch] || 1;
 
@@ -26,7 +38,7 @@ export default function Ventas({ branch }) {
             addToCart(product);
             setBarcode('');
         } else {
-            alert('Producto no encontrado.');
+            alert('Producto no encontrado. Búscalo en el catálogo.');
         }
     };
 
@@ -34,29 +46,43 @@ export default function Ventas({ branch }) {
         setCart(prev => {
             const existing = prev.find(item => item.id === product.id);
             if (existing) return prev.map(item => item.id === product.id ? { ...item, qty: item.qty + 1 } : item);
-            // Por defecto entra con precio general
             return [...prev, { 
-                id: product.id, 
-                code: product.codigo_barras, 
-                name: product.nombre, 
-                qty: 1, 
-                tipo_precio: 'general',
-                precio_aplicado: product.precio,
+                id: product.id, code: product.codigo_barras, name: product.nombre, qty: 1, 
+                tipo_precio: 'general', precio_aplicado: product.precio,
                 opciones_precio: { general: product.precio, mayoreo: product.precio_mayoreo, distribuidor: product.precio_distribuidor }
             }];
         });
     };
 
     const updatePriceType = (id, tipo) => {
+        setCart(prev => prev.map(item => item.id === id ? { ...item, tipo_precio: tipo, precio_aplicado: item.opciones_precio[tipo] } : item));
+    };
+
+    const updateQty = (id, delta) => {
         setCart(prev => prev.map(item => {
             if (item.id === id) {
-                return { ...item, tipo_precio: tipo, precio_aplicado: item.opciones_precio[tipo] };
+                const newQty = item.qty + delta;
+                return newQty > 0 ? { ...item, qty: newQty } : item;
             }
             return item;
         }));
     };
 
+    const removeItem = (id) => setCart(prev => prev.filter(item => item.id !== id));
+
     const subtotal = cart.reduce((acc, item) => acc + (item.precio_aplicado * item.qty), 0);
+
+    const guardarClienteExpres = async () => {
+        if (!newClientName) return alert('El nombre es obligatorio');
+        const { data, error } = await supabase.from('clientes').insert([{ nombre: newClientName, telefono: newClientPhone }]).select();
+        
+        if (error) return alert('Error: ' + error.message);
+        
+        setClientesDB([...clientesDB, data[0]].sort((a,b) => a.nombre.localeCompare(b.nombre)));
+        setSelectedClient(data[0].id); // Lo selecciona automáticamente
+        setShowNewClientModal(false);
+        setNewClientName(''); setNewClientPhone('');
+    };
 
     const handleCheckout = async () => {
         if (cart.length === 0) return alert('Carrito vacío.');
@@ -64,18 +90,15 @@ export default function Ventas({ branch }) {
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> PROCESANDO...';
         btn.disabled = true;
 
-        // Preparamos el JSON para Supabase
         const payloadItems = cart.map(item => ({
-            producto_id: item.id,
-            qty: item.qty,
-            precio: item.precio_aplicado,
-            tipo_precio: item.tipo_precio
+            producto_id: item.id, qty: item.qty, precio: item.precio_aplicado, tipo_precio: item.tipo_precio
         }));
 
-        // Llamamos a la función SQL que creamos
+        const clienteIdFinal = selectedClient ? parseInt(selectedClient) : null;
+
         const { error } = await supabase.rpc('procesar_venta', {
             p_sucursal_id: sucursalId,
-            p_cliente_id: null, // Aquí podrías pasar el ID de un cliente seleccionado
+            p_cliente_id: clienteIdFinal, 
             p_total: subtotal,
             p_items: payloadItems
         });
@@ -83,52 +106,135 @@ export default function Ventas({ branch }) {
         if (error) {
             alert('Error al cobrar: ' + error.message);
         } else {
-            alert('Venta procesada. El stock ha sido actualizado.');
+            alert(`¡Venta procesada con éxito por $${subtotal.toFixed(2)}!\nAsignada a: ${clienteIdFinal ? clientesDB.find(c=>c.id === clienteIdFinal).nombre : 'Público General'}`);
             setCart([]);
+            setSelectedClient('');
         }
         btn.innerHTML = '<i class="fa-solid fa-cash-register"></i> COBRAR';
         btn.disabled = false;
     };
 
+    const quickProducts = productosDB.slice(0, 4);
+    const filteredCatalog = productosDB.filter(p => p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || p.codigo_barras.includes(searchTerm));
+
     return (
         <div className="view-section active">
             <div className="register-section">
-                {/* Buscador igual que antes */}
                 <div className="search-bar">
-                    <input type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} placeholder="Código de Barras..." style={{flex:1, padding:'15px', background:'var(--bg-dark)', color:'white'}}/>
-                    <button className="btn-action btn-primary" onClick={handleSearch}>BUSCAR</button>
+                    <input type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} placeholder="Escanea o teclea Código de Barras..." style={{flex:1, padding:'15px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '8px'}} />
+                    <button className="btn-action btn-primary" onClick={handleSearch}><i className="fa-solid fa-magnifying-glass"></i> BUSCAR</button>
                 </div>
                 
-                <table className="data-table">
-                    <thead>
-                        <tr><th>Producto</th><th>Tipo Precio</th><th>Precio Unit.</th><th>Cant.</th><th>Importe</th></tr>
-                    </thead>
-                    <tbody>
-                        {cart.map((item, idx) => (
-                            <tr key={idx}>
-                                <td>{item.name}</td>
-                                <td>
-                                    <select value={item.tipo_precio} onChange={(e) => updatePriceType(item.id, e.target.value)} style={{background:'var(--bg-dark)', color:'white', padding:'5px'}}>
-                                        <option value="general">General</option>
-                                        <option value="mayoreo">Mayoreo</option>
-                                        <option value="distribuidor">Distribuidor</option>
-                                    </select>
-                                </td>
-                                <td>${item.precio_aplicado.toFixed(2)}</td>
-                                <td>{item.qty}</td>
-                                <td>${(item.precio_aplicado * item.qty).toFixed(2)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                <div className="cart-table-container">
+                    <table className="data-table">
+                        <thead><tr><th>Producto</th><th>Tipo Precio</th><th>Unitario</th><th>Cant.</th><th>Importe</th><th></th></tr></thead>
+                        <tbody>
+                            {cart.length === 0 ? <tr><td colSpan="6" style={{textAlign: 'center', padding: '20px', color: 'var(--text-muted)'}}>Carrito vacío.</td></tr> : 
+                                cart.map((item, idx) => (
+                                    <tr key={idx}>
+                                        <td><strong>{item.name}</strong><br/><small style={{color:'var(--text-muted)'}}>{item.code}</small></td>
+                                        <td>
+                                            <select value={item.tipo_precio} onChange={(e) => updatePriceType(item.id, e.target.value)} style={{background:'var(--bg-dark)', color:'white', padding:'5px', border: '1px solid var(--border-color)', borderRadius: '4px'}}>
+                                                <option value="general">General</option><option value="mayoreo">Mayoreo</option><option value="distribuidor">Distribuidor</option>
+                                            </select>
+                                        </td>
+                                        <td>${item.precio_aplicado.toFixed(2)}</td>
+                                        <td>
+                                            <div style={{display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-panel)', padding: '4px', borderRadius: '4px', width: 'max-content'}}>
+                                                <button onClick={() => updateQty(item.id, -1)} style={{background: 'var(--bg-lighter)', color: 'white', border: 'none', width: '24px', height: '24px', cursor: 'pointer'}}>-</button>
+                                                <span style={{minWidth: '20px', textAlign: 'center'}}>{item.qty}</span>
+                                                <button onClick={() => updateQty(item.id, 1)} style={{background: 'var(--bg-lighter)', color: 'white', border: 'none', width: '24px', height: '24px', cursor: 'pointer'}}>+</button>
+                                            </div>
+                                        </td>
+                                        <td>${(item.precio_aplicado * item.qty).toFixed(2)}</td>
+                                        <td style={{textAlign: 'right'}}><button onClick={() => removeItem(item.id)} style={{background: 'transparent', color: 'var(--primary-red)', border: 'none', cursor: 'pointer', fontSize: '1.2rem'}}><i className="fa-solid fa-trash-can"></i></button></td>
+                                    </tr>
+                                ))
+                            }
+                        </tbody>
+                    </table>
+                </div>
             </div>
             
             <div className="checkout-section">
+                <div className="quick-products">
+                    <h3 style={{marginBottom: '15px', color: 'var(--text-main)', fontSize: '1rem'}}><i className="fa-solid fa-bolt" style={{color: 'var(--accent)'}}></i> Añadir Rápido</h3>
+                    <div className="product-grid" style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px'}}>
+                        {quickProducts.map((prod) => (
+                            <div key={prod.id} onClick={() => addToCart(prod)} className="product-card" style={{background: 'var(--bg-dark)', padding: '15px', borderRadius: '8px', textAlign: 'center', cursor: 'pointer', border: '1px solid var(--border-color)'}}>
+                                <span style={{fontSize: '0.9rem', display: 'block'}}>{prod.nombre}</span>
+                                <span style={{color: 'var(--success)', fontWeight: 'bold', display: 'block', marginTop: '5px'}}>${prod.precio.toFixed(2)}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <button className="btn-action" onClick={() => setShowCatalogModal(true)} style={{width: '100%', marginTop: '15px', padding: '12px', background: 'var(--bg-lighter)', border: '1px solid var(--border-color)', color: 'white'}}>
+                        <i className="fa-solid fa-list" style={{marginRight: '8px'}}></i> Ver Catálogo Completo
+                    </button>
+                </div>
+                
                 <div className="totals-box">
+                    <div style={{marginBottom: '15px', borderBottom: '1px solid var(--border-color)', paddingBottom: '15px'}}>
+                        <label style={{display: 'block', color: 'var(--text-muted)', marginBottom: '8px', fontSize: '0.9rem'}}>Asignar a Paciente / Cliente:</label>
+                        <div style={{display: 'flex', gap: '10px'}}>
+                            <select value={selectedClient} onChange={(e) => setSelectedClient(e.target.value)} style={{flex: 1, padding: '10px', background: 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}}>
+                                <option value="">-- Público General --</option>
+                                {clientesDB.map(cli => <option key={cli.id} value={cli.id}>{cli.nombre}</option>)}
+                            </select>
+                            <button className="btn-action" onClick={() => setShowNewClientModal(true)} title="Nuevo Paciente" style={{padding: '10px 15px', background: 'var(--bg-lighter)'}}>
+                                <i className="fa-solid fa-user-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+
                     <div className="totals-row grand-total"><span>TOTAL:</span><span style={{color: 'var(--success)'}}>${subtotal.toFixed(2)}</span></div>
-                    <button id="btn-cobrar" onClick={handleCheckout} className="pay-btn"><i className="fa-solid fa-cash-register"></i> COBRAR</button>
+                    <button id="btn-cobrar" onClick={handleCheckout} className="pay-btn" style={{width: '100%', padding: '20px', background: 'var(--primary-red)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '1.3rem', fontWeight: 'bold', cursor: 'pointer', marginTop: '15px'}}>
+                        <i className="fa-solid fa-cash-register"></i> COBRAR
+                    </button>
                 </div>
             </div>
+
+            {/* Modal de Catálogo Completo omitido por brevedad (Es igual al anterior) */}
+            {showCatalogModal && (
+                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
+                    <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '10px', width: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column'}}>
+                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
+                            <h3><i className="fa-solid fa-book-open" style={{color: 'var(--accent)', marginRight: '10px'}}></i> Catálogo de Productos</h3>
+                            <button onClick={() => setShowCatalogModal(false)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
+                        </div>
+                        <input type="text" placeholder="🔍 Buscar por nombre o código..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{width:'100%', padding:'12px', marginBottom:'20px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
+                        <div style={{overflowY: 'auto', flex: 1, border: '1px solid var(--border-color)', borderRadius: '6px'}}>
+                            <table className="data-table">
+                                <thead><tr><th>Código</th><th>Nombre</th><th>Precio</th><th></th></tr></thead>
+                                <tbody>
+                                    {filteredCatalog.map(p => (
+                                        <tr key={p.id}>
+                                            <td style={{color: 'var(--text-muted)'}}>{p.codigo_barras}</td>
+                                            <td><strong>{p.nombre}</strong></td>
+                                            <td style={{color: 'var(--success)'}}>${p.precio.toFixed(2)}</td>
+                                            <td style={{textAlign: 'right'}}><button className="btn-action btn-primary" onClick={() => { addToCart(p); setShowCatalogModal(false); setSearchTerm(''); }} style={{padding: '6px 12px', fontSize: '0.9rem'}}>Agregar</button></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL NUEVO CLIENTE EXPRÉS */}
+            {showNewClientModal && (
+                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
+                    <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '10px', width: '400px'}}>
+                        <h3 style={{marginBottom: '20px'}}><i className="fa-solid fa-user-plus"></i> Registrar Paciente Rápido</h3>
+                        <input type="text" value={newClientName} onChange={(e) => setNewClientName(e.target.value)} placeholder="Nombre Completo" style={{width:'100%', padding:'10px', marginBottom:'15px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
+                        <input type="text" value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)} placeholder="Teléfono" style={{width:'100%', padding:'10px', marginBottom:'20px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
+                        <div style={{display:'flex', gap:'10px'}}>
+                            <button className="btn-action btn-primary" style={{flex:1, padding: '12px'}} onClick={guardarClienteExpres}>Guardar y Seleccionar</button>
+                            <button className="btn-action" style={{flex:1, padding: '12px'}} onClick={() => setShowNewClientModal(false)}>Cancelar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
