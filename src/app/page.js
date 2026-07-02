@@ -3,6 +3,10 @@ import { useState } from 'react';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import Ventas from '../components/Ventas';
+import Inventario from '../components/Inventario';
+import Clientes from '../components/Clientes';
+import Reportes from '../components/Reportes';
+import Configuracion from '../components/Configuracion';
 
 export default function Home() {
     const [activeView, setActiveView] = useState('ventas');
@@ -15,17 +19,11 @@ export default function Home() {
                 <Header branch={branch} setBranch={setBranch} />
                 
                 {activeView === 'ventas' && <Ventas />}
+                {activeView === 'inventario' && <Inventario />}
+                {activeView === 'clientes' && <Clientes />}
+                {activeView === 'reportes' && <Reportes />}
+                {activeView === 'configuracion' && <Configuracion />}
                 
-                {activeView !== 'ventas' && (
-                    <div className="view-section active">
-                        <div className="panel">
-                            <h2>Vista en construcción</h2>
-                            <p style={{color: 'var(--text-muted)'}}>
-                                En esta fase estamos conectando este módulo a la base de datos.
-                            </p>
-                        </div>
-                    </div>
-                )}
             </div>
         </div>
     );
