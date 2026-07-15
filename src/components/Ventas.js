@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 export default function Ventas({ branch = 'napoles' }) {
@@ -10,6 +10,9 @@ export default function Ventas({ branch = 'napoles' }) {
     const [promocionesDB, setPromocionesDB] = useState([]);
     const [selectedClient, setSelectedClient] = useState('');
     
+    // Referencia para controlar el foco del escáner físico
+    const scannerInputRef = useRef(null);
+
     // Estados para Modales
     const [showCatalogModal, setShowCatalogModal] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -28,15 +31,29 @@ export default function Ventas({ branch = 'napoles' }) {
         if (promos) setPromocionesDB(promos);
     };
 
-    useEffect(() => { fetchDatos(); }, []);
+    // Al montar el componente, forzamos el foco inicial en el lector
+    useEffect(() => {
+        fetchDatos();
+        scannerInputRef.current?.focus();
+    }, []);
 
     const branchIdMap = { napoles: 1, roma: 2, centro: 3 };
     const sucursalId = branchIdMap[branch] || 1;
 
     const handleSearch = () => {
-        const product = productosDB.find(p => p.codigo_barras === barcode.trim());
-        if (product) { addToCart(product); setBarcode(''); } 
-        else alert('Producto no encontrado.');
+        const targetCode = barcode.trim();
+        if (!targetCode) return;
+
+        const product = productosDB.find(p => p.codigo_barras === targetCode);
+        if (product) { 
+            addToCart(product); 
+            setBarcode(''); 
+        } else {
+            alert(`Código "${targetCode}" no registrado en el sistema.`);
+            setBarcode('');
+            // Devolver el foco al escáner inmediatamente si hay un error
+            scannerInputRef.current?.focus();
+        }
     };
 
     const addToCart = (product) => {
@@ -49,11 +66,24 @@ export default function Ventas({ branch = 'napoles' }) {
                 opciones_precio: { general: product.precio, mayoreo: product.precio_mayoreo, distribuidor: product.precio_distribuidor }
             }];
         });
+        // Devolver el foco al escáner tras añadir con éxito
+        setTimeout(() => scannerInputRef.current?.focus(), 50);
     };
 
-    const updatePriceType = (id, tipo) => setCart(prev => prev.map(item => item.id === id ? { ...item, tipo_precio: tipo, precio_aplicado: item.opciones_precio[tipo] } : item));
-    const updateQty = (id, delta) => setCart(prev => prev.map(item => item.id === id && (item.qty + delta > 0) ? { ...item, qty: item.qty + delta } : item));
-    const removeItem = (id) => setCart(prev => prev.filter(item => item.id !== id));
+    const updatePriceType = (id, tipo) => {
+        setCart(prev => prev.map(item => item.id === id ? { ...item, tipo_precio: tipo, precio_aplicado: item.opciones_precio[tipo] } : item));
+        scannerInputRef.current?.focus(); // Re-enfocar
+    };
+
+    const updateQty = (id, delta) => {
+        setCart(prev => prev.map(item => item.id === id && (item.qty + delta > 0) ? { ...item, qty: item.qty + delta } : item));
+        scannerInputRef.current?.focus(); // Re-enfocar
+    };
+
+    const removeItem = (id) => {
+        setCart(prev => prev.filter(item => item.id !== id));
+        scannerInputRef.current?.focus(); // Re-enfocar
+    };
 
     const guardarClienteExpres = async () => {
         if (!newClientName) return alert('El nombre es obligatorio');
@@ -65,6 +95,7 @@ export default function Ventas({ branch = 'napoles' }) {
         setSelectedClient(data[0].id); 
         setShowNewClientModal(false);
         setNewClientName(''); setNewClientPhone('');
+        setTimeout(() => scannerInputRef.current?.focus(), 50); // Re-enfocar
     };
 
     // Evaluación matemática de promociones vigentes al vuelo
@@ -117,11 +148,17 @@ export default function Ventas({ branch = 'napoles' }) {
         const clienteIdFinal = selectedClient ? parseInt(selectedClient) : null;
         const { error } = await supabase.rpc('procesar_venta', { p_sucursal_id: sucursalId, p_cliente_id: clienteIdFinal, p_total: totalCobrar, p_items: payloadItems });
 
-        if (error) alert('Error al cobrar: ' + error.message);
-        else { alert('¡Venta procesada y stock descontado!'); setCart([]); setSelectedClient(''); }
+        if (error) {
+            alert('Error al cobrar: ' + error.message);
+        } else {
+            alert('¡Venta procesada y stock descontado!'); 
+            setCart([]); 
+            setSelectedClient(''); 
+        }
         
         btn.innerHTML = '<i class="fa-solid fa-cash-register"></i> COBRAR';
         btn.disabled = false;
+        setTimeout(() => scannerInputRef.current?.focus(), 50); // Mantener el flujo enfocado
     };
 
     const filteredCatalog = productosDB.filter(p => p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || p.codigo_barras.includes(searchTerm));
@@ -130,7 +167,16 @@ export default function Ventas({ branch = 'napoles' }) {
         <div className="view-section active">
             <div className="register-section">
                 <div className="search-bar">
-                    <input type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} placeholder="Código de Barras..." style={{flex:1, padding:'15px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '8px'}} />
+                    <input 
+                        ref={scannerInputRef} // Enlazamos la referencia de hardware
+                        type="text" 
+                        value={barcode} 
+                        onChange={(e) => setBarcode(e.target.value)} 
+                        onKeyDown={(e) => e.key === 'Enter' && handleSearch()} 
+                        autoFocus // Autofoco nativo del navegador al renderizar
+                        placeholder="[Listo para escanear] Pasa el código de barras por el lector..." 
+                        style={{flex:1, padding:'15px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 0 10px rgba(198, 40, 40, 0.1)'}} 
+                    />
                     <button className="btn-action btn-primary" onClick={handleSearch}><i className="fa-solid fa-magnifying-glass"></i> BUSCAR</button>
                 </div>
                 
@@ -138,7 +184,7 @@ export default function Ventas({ branch = 'napoles' }) {
                     <table className="data-table">
                         <thead><tr><th>Producto</th><th>Tipo Precio</th><th>Unitario</th><th>Cant.</th><th>Importe Neto</th><th></th></tr></thead>
                         <tbody>
-                            {cartRender.length === 0 ? <tr><td colSpan="6" style={{textAlign: 'center', padding: '20px', color: 'var(--text-muted)'}}>Carrito vacío.</td></tr> : 
+                            {cartRender.length === 0 ? <tr><td colSpan="6" style={{textAlign: 'center', padding: '20px', color: 'var(--text-muted)'}}>Esperando lecturas del escáner físico...</td></tr> : 
                                 cartRender.map((item, idx) => (
                                     <tr key={idx}>
                                         <td>
@@ -182,7 +228,7 @@ export default function Ventas({ branch = 'napoles' }) {
                             </div>
                         ))}
                     </div>
-                    <button className="btn-action" onClick={() => setShowCatalogModal(true)} style={{width: '100%', marginTop: '15px', padding: '12px', background: 'var(--bg-lighter)', border: '1px solid var(--border-color)', color: 'white'}}>
+                    <button className="btn-action" onClick={() => { setShowCatalogModal(true); setTimeout(() => scannerInputRef.current?.blur(), 50); }} style={{width: '100%', marginTop: '15px', padding: '12px', background: 'var(--bg-lighter)', border: '1px solid var(--border-color)', color: 'white'}}>
                         <i className="fa-solid fa-list" style={{marginRight: '8px'}}></i> Ver Catálogo Completo
                     </button>
                 </div>
@@ -191,11 +237,10 @@ export default function Ventas({ branch = 'napoles' }) {
                     <div style={{display:'flex', justifycontent:'space-between', color:'var(--text-muted)', marginBottom:'5px'}}><span>Subtotal:</span><span>${subtotalBruto.toFixed(2)}</span></div>
                     <div style={{display:'flex', justifycontent:'space-between', color:'var(--accent)', marginBottom:'10px'}}><span>Descuentos:</span><span>-${totalDescuentos.toFixed(2)}</span></div>
                     
-                    {/* SECCIÓN CORREGIDA: SELECTOR FLEX MÁS BOTÓN EXPRÉS */}
                     <div style={{marginBottom: '15px', borderTop: '1px dashed var(--border-color)', paddingTop: '15px'}}>
                         <label style={{display: 'block', color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '5px'}}>Asignar Paciente:</label>
                         <div style={{display: 'flex', gap: '8px'}}>
-                            <select value={selectedClient} onChange={(e) => setSelectedClient(e.target.value)} style={{flex: 1, padding: '10px', background: 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}}>
+                            <select value={selectedClient} onChange={(e) => { setSelectedClient(e.target.value); scannerInputRef.current?.focus(); }} style={{flex: 1, padding: '10px', background: 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}}>
                                 <option value="">-- Público General --</option>
                                 {clientesDB.map(cli => <option key={cli.id} value={cli.id}>{cli.nombre}</option>)}
                             </select>
@@ -210,13 +255,13 @@ export default function Ventas({ branch = 'napoles' }) {
                 </div>
             </div>
 
-            {/* MODAL DEL CATÁLOGO COMPLETO */}
+            {/* Modal de Catálogo */}
             {showCatalogModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '10px', width: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column'}}>
                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
                             <h3><i className="fa-solid fa-book-open" style={{color: 'var(--accent)', marginRight: '10px'}}></i> Catálogo de Productos</h3>
-                            <button onClick={() => setShowCatalogModal(false)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
+                            <button onClick={() => { setShowCatalogModal(false); scannerInputRef.current?.focus(); }} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
                         </div>
                         <input type="text" placeholder="🔍 Buscar por nombre o código..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{width:'100%', padding:'12px', marginBottom:'20px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
                         <div style={{overflowY: 'auto', flex: 1, border: '1px solid var(--border-color)', borderRadius: '6px'}}>
@@ -238,7 +283,7 @@ export default function Ventas({ branch = 'napoles' }) {
                 </div>
             )}
 
-            {/* MODAL DE ALTA EXPRÉS COMPORTAMIENTO RESTAURADO */}
+            {/* Modal de Alta Exprés */}
             {showNewClientModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '10px', width: '400px'}}>
@@ -246,8 +291,8 @@ export default function Ventas({ branch = 'napoles' }) {
                         <input type="text" value={newClientName} onChange={(e) => setNewClientName(e.target.value)} placeholder="Nombre Completo" style={{width:'100%', padding:'10px', marginBottom:'15px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
                         <input type="text" value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)} placeholder="Teléfono" style={{width:'100%', padding:'10px', marginBottom:'20px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
                         <div style={{display:'flex', gap:'10px'}}>
-                            <button className="btn-action btn-primary" style={{flex:1, padding: '12px'}} onClick={guardarClienteExpres}>Guardar y Seleccionar</button>
-                            <button className="btn-action" style={{flex:1, padding: '12px'}} onClick={() => setShowNewClientModal(false)}>Cancelar</button>
+                            <button className="btn-action btn-primary" style={{flex:1, padding: '12pxfb'}} onClick={guardarClienteExpres}>Guardar y Seleccionar</button>
+                            <button className="btn-action" style={{flex:1, padding: '12px'}} onClick={() => { setShowNewClientModal(false); scannerInputRef.current?.focus(); }}>Cancelar</button>
                         </div>
                     </div>
                 </div>
