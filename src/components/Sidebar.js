@@ -4,6 +4,7 @@ export default function Sidebar({ activeView, setActiveView }) {
     const navItems = [
         { id: 'ventas', icon: 'fa-cart-shopping', title: 'Ventas' },
         { id: 'inventario', icon: 'fa-boxes-stacked', title: 'Inventario' },
+        { id: 'promociones', icon: 'fa-tags', title: 'Promociones' }, // <-- ¡Aquí está el nuevo botón!
         { id: 'clientes', icon: 'fa-users', title: 'Clientes' },
         { id: 'reportes', icon: 'fa-chart-line', title: 'Reportes' },
         { id: 'configuracion', icon: 'fa-gear', title: 'Configuración' }
