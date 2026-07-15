@@ -4,6 +4,7 @@ import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import Ventas from '../components/Ventas';
 import Inventario from '../components/Inventario';
+import Promociones from '../components/Promociones';
 import Clientes from '../components/Clientes';
 import Reportes from '../components/Reportes';
 import Configuracion from '../components/Configuracion';
@@ -20,6 +21,7 @@ export default function Home() {
                 
                 {activeView === 'ventas' && <Ventas />}
                 {activeView === 'inventario' && <Inventario branch={branch} />}
+                {activeView === 'promociones' && <Promociones />}
                 {activeView === 'clientes' && <Clientes />}
                 {activeView === 'reportes' && <Reportes />}
                 {activeView === 'configuracion' && <Configuracion />}
