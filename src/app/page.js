@@ -19,7 +19,7 @@ export default function Home() {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px', height: '100vh', overflow: 'hidden' }}>
                 <Header branch={branch} setBranch={setBranch} />
                 
-                {activeView === 'ventas' && <Ventas />}
+                {activeView === 'ventas' && <Ventas branch={branch} />}
                 {activeView === 'inventario' && <Inventario branch={branch} />}
                 {activeView === 'promociones' && <Promociones />}
                 {activeView === 'clientes' && <Clientes />}
