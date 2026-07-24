@@ -17,8 +17,8 @@ export default function Reportes() {
         ticketPromedio: 0
     });
 
-    // Estado para gráfica de sucursales
-    const [branchData, setBranchData] = useState({ napoles: 0, roma: 0, centro: 0 });
+    // Estado para gráfica de sucursales actualizado
+    const [branchData, setBranchData] = useState({ napoles: 0, obrera: 0, pedregal: 0 });
     
     // Listas detalladas
     const [recentVentas, setRecentVentas] = useState([]);
@@ -52,7 +52,7 @@ export default function Reportes() {
         let totalIngresos = 0;
         let totalConsultas = 0;
         let totalProductos = 0;
-        let sedes = { napoles: 0, roma: 0, centro: 0 };
+        let sedes = { napoles: 0, obrera: 0, pedregal: 0 };
         let productMap = {};
 
         ventas.forEach(v => {
@@ -61,8 +61,8 @@ export default function Reportes() {
 
             // Agregación por ID de sucursal según las llaves relacionales
             if (v.sucursal_id === 1) sedes.napoles += monto;
-            if (v.sucursal_id === 2) sedes.roma += monto;
-            if (v.sucursal_id === 3) sedes.centro += monto;
+            if (v.sucursal_id === 2) sedes.obrera += monto;
+            if (v.sucursal_id === 3) sedes.pedregal += monto;
 
             // Procesar el desglose de los artículos dentro del ticket
             v.venta_detalles?.forEach(det => {
@@ -138,7 +138,7 @@ export default function Reportes() {
     };
 
     // Calcular proporciones dinámicas para que las gráficas de barras nunca se desborden de su contenedor
-    const maxSale = Math.max(branchData.napoles, branchData.roma, branchData.centro, 1);
+    const maxSale = Math.max(branchData.napoles, branchData.obrera, branchData.pedregal, 1);
     const getPercent = (value) => ((value / maxSale) * 100).toFixed(0);
 
     return (
@@ -204,14 +204,14 @@ export default function Reportes() {
                                     <span style={{color:'var(--text-muted)', fontSize:'0.85rem', marginTop:'8px'}}>Nápoles</span>
                                 </div>
                                 <div style={{display:'flex', flexDirection:'column', alignItems:'center', width:'80px'}}>
-                                    <span style={{color:'var(--success)', fontWeight:'bold', fontSize:'0.9rem', marginBottom:'5px'}}>${branchData.roma.toFixed(0)}</span>
-                                    <div style={{width: '100%', height: `${getPercent(branchData.roma)}px`, background: 'var(--primary-red)', borderRadius: '6px 6px 0 0', minHeight:'2px', transition:'height 0.5s'}}></div>
-                                    <span style={{color:'var(--text-muted)', fontSize:'0.85rem', marginTop:'8px'}}>Roma</span>
+                                    <span style={{color:'var(--success)', fontWeight:'bold', fontSize:'0.9rem', marginBottom:'5px'}}>${branchData.obrera.toFixed(0)}</span>
+                                    <div style={{width: '100%', height: `${getPercent(branchData.obrera)}px`, background: 'var(--primary-red)', borderRadius: '6px 6px 0 0', minHeight:'2px', transition:'height 0.5s'}}></div>
+                                    <span style={{color:'var(--text-muted)', fontSize:'0.85rem', marginTop:'8px'}}>Obrera</span>
                                 </div>
                                 <div style={{display:'flex', flexDirection:'column', alignItems:'center', width:'80px'}}>
-                                    <span style={{color:'var(--success)', fontWeight:'bold', fontSize:'0.9rem', marginBottom:'5px'}}>${branchData.centro.toFixed(0)}</span>
-                                    <div style={{width: '100%', height: `${getPercent(branchData.centro)}px`, background: 'var(--primary-red)', borderRadius: '6px 6px 0 0', minHeight:'2px', transition:'height 0.5s'}}></div>
-                                    <span style={{color:'var(--text-muted)', fontSize:'0.85rem', marginTop:'8px'}}>Centro</span>
+                                    <span style={{color:'var(--success)', fontWeight:'bold', fontSize:'0.9rem', marginBottom:'5px'}}>${branchData.pedregal.toFixed(0)}</span>
+                                    <div style={{width: '100%', height: `${getPercent(branchData.pedregal)}px`, background: 'var(--primary-red)', borderRadius: '6px 6px 0 0', minHeight:'2px', transition:'height 0.5s'}}></div>
+                                    <span style={{color:'var(--text-muted)', fontSize:'0.85rem', marginTop:'8px'}}>Pedregal</span>
                                 </div>
                             </div>
                         </div>

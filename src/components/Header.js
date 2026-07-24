@@ -11,8 +11,8 @@ export default function Header({ branch, setBranch }) {
                 <i className="fa-solid fa-location-dot" style={{ color: 'var(--primary-red)', marginRight: '8px' }}></i>
                 <select value={branch} onChange={(e) => setBranch(e.target.value)}>
                     <option value="napoles">Sucursal Nápoles</option>
-                    <option value="roma">Sucursal Roma</option>
-                    <option value="centro">Sucursal Centro</option>
+                    <option value="obrera">Sucursal Obrera</option>
+                    <option value="pedregal">Sucursal Pedregal</option>
                 </select>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>

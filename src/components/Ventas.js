@@ -10,10 +10,11 @@ export default function Ventas({ branch = 'napoles' }) {
     const [promocionesDB, setPromocionesDB] = useState([]);
     const [selectedClient, setSelectedClient] = useState('');
     
-    // Referencia para controlar el foco del escáner físico
+    // NUEVO: Estado del método de pago
+    const [metodoPago, setMetodoPago] = useState('efectivo');
+    
     const scannerInputRef = useRef(null);
 
-    // Estados para Modales
     const [showCatalogModal, setShowCatalogModal] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [showNewClientModal, setShowNewClientModal] = useState(false);
@@ -31,13 +32,13 @@ export default function Ventas({ branch = 'napoles' }) {
         if (promos) setPromocionesDB(promos);
     };
 
-    // Al montar el componente, forzamos el foco inicial en el lector
     useEffect(() => {
         fetchDatos();
         scannerInputRef.current?.focus();
     }, []);
 
-    const branchIdMap = { napoles: 1, roma: 2, centro: 3 };
+    // ¡TU CAMBIO CORRECTO ESTÁ AQUÍ!
+    const branchIdMap = { napoles: 1, obrera: 2, pedregal: 3 };
     const sucursalId = branchIdMap[branch] || 1;
 
     const handleSearch = () => {
@@ -51,7 +52,6 @@ export default function Ventas({ branch = 'napoles' }) {
         } else {
             alert(`Código "${targetCode}" no registrado en el sistema.`);
             setBarcode('');
-            // Devolver el foco al escáner inmediatamente si hay un error
             scannerInputRef.current?.focus();
         }
     };
@@ -66,23 +66,22 @@ export default function Ventas({ branch = 'napoles' }) {
                 opciones_precio: { general: product.precio, mayoreo: product.precio_mayoreo, distribuidor: product.precio_distribuidor }
             }];
         });
-        // Devolver el foco al escáner tras añadir con éxito
         setTimeout(() => scannerInputRef.current?.focus(), 50);
     };
 
     const updatePriceType = (id, tipo) => {
         setCart(prev => prev.map(item => item.id === id ? { ...item, tipo_precio: tipo, precio_aplicado: item.opciones_precio[tipo] } : item));
-        scannerInputRef.current?.focus(); // Re-enfocar
+        scannerInputRef.current?.focus();
     };
 
     const updateQty = (id, delta) => {
         setCart(prev => prev.map(item => item.id === id && (item.qty + delta > 0) ? { ...item, qty: item.qty + delta } : item));
-        scannerInputRef.current?.focus(); // Re-enfocar
+        scannerInputRef.current?.focus();
     };
 
     const removeItem = (id) => {
         setCart(prev => prev.filter(item => item.id !== id));
-        scannerInputRef.current?.focus(); // Re-enfocar
+        scannerInputRef.current?.focus();
     };
 
     const guardarClienteExpres = async () => {
@@ -95,10 +94,9 @@ export default function Ventas({ branch = 'napoles' }) {
         setSelectedClient(data[0].id); 
         setShowNewClientModal(false);
         setNewClientName(''); setNewClientPhone('');
-        setTimeout(() => scannerInputRef.current?.focus(), 50); // Re-enfocar
+        setTimeout(() => scannerInputRef.current?.focus(), 50);
     };
 
-    // Evaluación matemática de promociones vigentes al vuelo
     let subtotalBruto = 0;
     let totalDescuentos = 0;
     const hoy = new Date();
@@ -140,25 +138,37 @@ export default function Ventas({ branch = 'napoles' }) {
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> PROCESANDO...';
         btn.disabled = true;
 
+        if (metodoPago === 'efectivo') {
+            console.log("Comando de apertura de caja enviado...");
+        }
+
         const payloadItems = cartRender.map(item => ({
             producto_id: item.id, qty: item.qty, tipo_precio: item.tipo_precio,
             precio: item.qty > 0 ? (item.importeNeto / item.qty).toFixed(2) : item.precio_aplicado 
         }));
 
         const clienteIdFinal = selectedClient ? parseInt(selectedClient) : null;
-        const { error } = await supabase.rpc('procesar_venta', { p_sucursal_id: sucursalId, p_cliente_id: clienteIdFinal, p_total: totalCobrar, p_items: payloadItems });
+        
+        // AQUÍ INYECTAMOS EL MÉTODO DE PAGO A LA BASE DE DATOS
+        const { error } = await supabase.rpc('procesar_venta', { 
+            p_sucursal_id: sucursalId, 
+            p_cliente_id: clienteIdFinal, 
+            p_total: totalCobrar, 
+            p_metodo_pago: metodoPago,
+            p_items: payloadItems 
+        });
 
         if (error) {
             alert('Error al cobrar: ' + error.message);
         } else {
-            alert('¡Venta procesada y stock descontado!'); 
+            alert(`¡Venta procesada en ${metodoPago.toUpperCase()}!`); 
             setCart([]); 
             setSelectedClient(''); 
         }
         
         btn.innerHTML = '<i class="fa-solid fa-cash-register"></i> COBRAR';
         btn.disabled = false;
-        setTimeout(() => scannerInputRef.current?.focus(), 50); // Mantener el flujo enfocado
+        setTimeout(() => scannerInputRef.current?.focus(), 50);
     };
 
     const filteredCatalog = productosDB.filter(p => p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || p.codigo_barras.includes(searchTerm));
@@ -168,12 +178,12 @@ export default function Ventas({ branch = 'napoles' }) {
             <div className="register-section">
                 <div className="search-bar">
                     <input 
-                        ref={scannerInputRef} // Enlazamos la referencia de hardware
+                        ref={scannerInputRef}
                         type="text" 
                         value={barcode} 
                         onChange={(e) => setBarcode(e.target.value)} 
                         onKeyDown={(e) => e.key === 'Enter' && handleSearch()} 
-                        autoFocus // Autofoco nativo del navegador al renderizar
+                        autoFocus
                         placeholder="[Listo para escanear] Pasa el código de barras por el lector..." 
                         style={{flex:1, padding:'15px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 0 10px rgba(198, 40, 40, 0.1)'}} 
                     />
@@ -234,8 +244,8 @@ export default function Ventas({ branch = 'napoles' }) {
                 </div>
                 
                 <div className="totals-box">
-                    <div style={{display:'flex', justifycontent:'space-between', color:'var(--text-muted)', marginBottom:'5px'}}><span>Subtotal:</span><span>${subtotalBruto.toFixed(2)}</span></div>
-                    <div style={{display:'flex', justifycontent:'space-between', color:'var(--accent)', marginBottom:'10px'}}><span>Descuentos:</span><span>-${totalDescuentos.toFixed(2)}</span></div>
+                    <div style={{display:'flex', justifyContent:'space-between', color:'var(--text-muted)', marginBottom:'5px'}}><span>Subtotal:</span><span>${subtotalBruto.toFixed(2)}</span></div>
+                    <div style={{display:'flex', justifyContent:'space-between', color:'var(--accent)', marginBottom:'10px'}}><span>Descuentos:</span><span>-${totalDescuentos.toFixed(2)}</span></div>
                     
                     <div style={{marginBottom: '15px', borderTop: '1px dashed var(--border-color)', paddingTop: '15px'}}>
                         <label style={{display: 'block', color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '5px'}}>Asignar Paciente:</label>
@@ -246,6 +256,25 @@ export default function Ventas({ branch = 'napoles' }) {
                             </select>
                             <button className="btn-action" onClick={() => setShowNewClientModal(true)} title="Registrar Paciente Nuevo" style={{padding: '10px 14px', background: 'var(--bg-lighter)', border: '1px solid var(--border-color)', color: 'white', cursor: 'pointer'}}>
                                 <i className="fa-solid fa-user-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* BOTONES DE MÉTODO DE PAGO RESTAURADOS */}
+                    <div style={{marginBottom: '15px'}}>
+                        <label style={{display: 'block', color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '8px'}}>Forma de Pago:</label>
+                        <div style={{display: 'flex', gap: '10px'}}>
+                            <button 
+                                onClick={() => setMetodoPago('efectivo')} 
+                                style={{flex: 1, padding: '10px', background: metodoPago === 'efectivo' ? '#1b5e20' : 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer'}}
+                            >
+                                <i className="fa-solid fa-money-bill-1-wave"></i> Efectivo
+                            </button>
+                            <button 
+                                onClick={() => setMetodoPago('tarjeta')} 
+                                style={{flex: 1, padding: '10px', background: metodoPago === 'tarjeta' ? '#0d47a1' : 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer'}}
+                            >
+                                <i className="fa-solid fa-credit-card"></i> Tarjeta
                             </button>
                         </div>
                     </div>
@@ -291,7 +320,7 @@ export default function Ventas({ branch = 'napoles' }) {
                         <input type="text" value={newClientName} onChange={(e) => setNewClientName(e.target.value)} placeholder="Nombre Completo" style={{width:'100%', padding:'10px', marginBottom:'15px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
                         <input type="text" value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)} placeholder="Teléfono" style={{width:'100%', padding:'10px', marginBottom:'20px', background:'var(--bg-dark)', color:'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
                         <div style={{display:'flex', gap:'10px'}}>
-                            <button className="btn-action btn-primary" style={{flex:1, padding: '12pxfb'}} onClick={guardarClienteExpres}>Guardar y Seleccionar</button>
+                            <button className="btn-action btn-primary" style={{flex:1, padding: '12px'}} onClick={guardarClienteExpres}>Guardar y Seleccionar</button>
                             <button className="btn-action" style={{flex:1, padding: '12px'}} onClick={() => { setShowNewClientModal(false); scannerInputRef.current?.focus(); }}>Cancelar</button>
                         </div>
                     </div>

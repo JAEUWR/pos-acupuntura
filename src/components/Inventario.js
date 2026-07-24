@@ -12,7 +12,8 @@ export default function Inventario({ branch = 'napoles' }) {
     const [newName, setNewName] = useState('');
     const [newPrice, setNewPrice] = useState('');
     
-    const branchIdMap = { napoles: 1, roma: 2, centro: 3 };
+    // ¡AQUÍ ESTÁ EL CAMBIO DE LAS SUCURSALES!
+    const branchIdMap = { napoles: 1, obrera: 2, pedregal: 3 };
     const sucursalId = branchIdMap[branch] || 1;
 
     const fetchInventario = async () => {
@@ -164,14 +165,14 @@ export default function Inventario({ branch = 'napoles' }) {
                 </div>
             )}
 
-            {/* Modal de Alta omitido por brevedad conservando la misma lógica funcional previa */}
+            {/* Modal de Alta */}
             {showModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '10px', width: '400px'}}>
                         <h3>Registrar en Catálogo</h3>
-                        <input type="text" value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="Código de barras" style={{width:'100%', padding:'10px', margin:'10px 0', background:'var(--bg-dark)', color:'white'}} />
-                        <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre del artículo" style={{width:'100%', padding:'10px', margin:'10px 0', background:'var(--bg-dark)', color:'white'}} />
-                        <input type="number" value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder="Precio General" style={{width:'100%', padding:'10px', margin:'10px 0', background:'var(--bg-dark)', color:'white'}} />
+                        <input type="text" value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="Código de barras" style={{width:'100%', padding:'10px', margin:'10px 0', background:'var(--bg-dark)', color:'white', border:'1px solid var(--border-color)', borderRadius:'6px'}} />
+                        <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre del artículo" style={{width:'100%', padding:'10px', margin:'10px 0', background:'var(--bg-dark)', color:'white', border:'1px solid var(--border-color)', borderRadius:'6px'}} />
+                        <input type="number" value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder="Precio General" style={{width:'100%', padding:'10px', margin:'10px 0', background:'var(--bg-dark)', color:'white', border:'1px solid var(--border-color)', borderRadius:'6px'}} />
                         <div style={{display:'flex', gap:'10px', marginTop:'20px'}}>
                             <button className="btn-action btn-primary" style={{flex:1}} onClick={guardarProducto}>Guardar</button>
                             <button className="btn-action" style={{flex:1}} onClick={() => setShowModal(false)}>Cancelar</button>
