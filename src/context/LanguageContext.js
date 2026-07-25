@@ -1,0 +1,269 @@
+'use client';
+import { createContext, useState, useContext } from 'react';
+
+const translations = {
+    es: {
+        // Generales y Sidebar
+        panelControl: "Panel de Control", puntoVenta: "Punto de Venta", inventario: "Inventario", 
+        promociones: "Promociones", reportes: "Reportes", clientes: "Clientes", configuracion: "Configuración", 
+        cerrarSesion: "Cerrar Sesión", enLinea: "En línea", sucursal: "Sucursal", todas: "Todas",
+        // Módulo Ventas
+        buscar: "BUSCAR", producto: "Producto", tipoPrecio: "Tipo Precio", unitario: "Unitario", 
+        cantidadAbrev: "Cant.", importeNeto: "Importe Neto", esperandoLecturas: "Esperando lecturas...", 
+        anadirRapido: "Añadir Rápido", verCatalogo: "Ver Catálogo Completo", subtotal: "Subtotal:", 
+        descuentos: "Descuentos:", asignarPaciente: "Asignar Paciente:", publicoGeneral: "-- Público General --", 
+        formaPago: "Forma de Pago:", efectivo: "Efectivo", tarjeta: "Tarjeta", total: "TOTAL:", 
+        cobrar: "COBRAR", catalogoProductos: "Catálogo de Productos", buscarNombreCodigo: "🔍 Buscar por nombre o código...", 
+        codigo: "Código", nombre: "Nombre", precio: "Precio", agregar: "Agregar", 
+        registrarPaciente: "Registrar Paciente Rápido", nombreCompleto: "Nombre Completo", telefono: "Teléfono", 
+        guardarSeleccionar: "Guardar y Seleccionar", cancelar: "Cancelar", 
+        placeholderEscanear: "[Listo para escanear] Pasa el código de barras por el lector...", procesando: "PROCESANDO...", 
+        carritoVacio: "Carrito vacío.", cobradoExito: "¡Cobrado con éxito en", general: "General", mayoreo: "Mayoreo", distribuidor: "Distribuidor",
+        // Módulo Inventario
+        catalogo: "Catálogo", familiasGrupos: "Familias / Grupos", kardex: "Kardex", nuevoProducto: "Nuevo Producto", 
+        familia: "Familia", stock: "Stock", ajustar: "Ajustar", suelto: "Suelto", familiasAgrupaciones: "Familias y Agrupaciones", 
+        crearFamilia: "Crear Familia", id: "ID", nombreFamilia: "Nombre de Familia", accionesFamilia: "Acciones de Familia", 
+        editarIntegrantes: "Editar Integrantes", fijarPrecioMasivo: "Fijar Precio Masivo", noFamiliasCreadas: "No has creado ninguna familia.", 
+        kardexAuditoria: "Kardex de Auditoría", fecha: "Fecha", movimiento: "Movimiento", cantidad: "Cantidad", motivo: "Motivo", 
+        editarFamilia: "Editar Familia", nuevaFamilia: "Nueva Familia", labelNombreFamilia: "Nombre de la Familia", 
+        ejemploFamilia: "Ej. Agujas de Acero", seleccionaProductosFamilia: "Selecciona los productos que pertenecen a esta familia:", 
+        guardarFamilia: "Guardar Familia", nuevoArticulo: "Nuevo Artículo", familiaOpcional: "Familia (Opcional)", 
+        sinGrupo: "-- Sin Grupo (Suelto) --", codigoBarras: "Código de barras", nombreArticulo: "Nombre del artículo", 
+        preciosInstruccion: "Precios (Deja blanco May/Dist para copiar General)", generalReq: "General *", guardarArticulo: "Guardar Artículo", 
+        cantidadInvalida: "Cantidad no válida", stockActualizado: "Stock actualizado.", preciosInvalidos: "Precios inválidos.", 
+        preciosActualizadosGlobal: "Precios actualizados en todas las sucursales.", promptPrecioMasivo1: "Ingresa el nuevo PRECIO GENERAL para todos los artículos de la familia", 
+        promptPrecioMasivo2: "Los precios de mayoreo y distribuidor se igualarán a este.", preciosMasivosAplicados: "Precios masivos aplicados correctamente a todos los integrantes de la familia.", 
+        nombreFamiliaObligatorio: "El nombre de la familia es obligatorio.", faltanCampos: "Faltan campos obligatorios.", familiaGuardadaExito: "guardada exitosamente.",
+        // Módulo Promociones
+        llenaCampos: "Llena los campos obligatorios.", seleccionaProductoAlert: "Selecciona un producto.", seleccionaFamiliaAlert: "Selecciona una familia.", 
+        errorCrear: "Error al crear: ", campanaLanzada: "Campaña lanzada exitosamente.", confirmarBajaCampana: "¿Deseas dar de baja esta campaña?", 
+        panelPromociones: "Panel de Promociones", crearCampana: "Crear Campaña", campana: "Campaña", aplicaA: "Aplica a", 
+        mecanica: "Mecánica", vigencia: "Vigencia", estado: "Estado", precioFijo: "Precio Fijo", lleva: "Lleva", 
+        gratis: "Gratis", familiaDosPuntos: "Familia: ", productoDosPuntos: "Producto: ", vigente: "VIGENTE", 
+        inactiva: "INACTIVA", nuevaPromocion: "Nueva Promoción", porProducto: "Por Producto", porFamilia: "Por Familia (Grupo)", 
+        seleccionaProducto: "-- Selecciona el Producto --", seleccionaFamilia: "-- Selecciona la Familia --", 
+        nombrePromocionEjemplo: "Nombre (Ej. 3x2 Agujas Acero)", esquemaDescuento: "Esquema de Descuento:", porcentaje: "Porcentaje (%)", 
+        porVolumen: "Por Volumen (Ej. 3x2)", llevaTotal: "Lleva (Total uds.):", ej3: "Ej. 3", descuentaGratis: "Descuenta (Gratis):", 
+        ej1: "Ej. 1", valorDescuento: "Valor del descuento", inicio: "Inicio:", fin: "Fin:", lanzarOferta: "Lanzar Oferta",
+        // Módulo Reportes
+        noDatosExportar: "No hay datos en el rango seleccionado para exportar.", folio: "Folio", fechaHora: "Fecha / Hora", 
+        sucursalEmisora: "Sucursal Emisora", montoCobrado: "Monto Cobrado", cierreCaja: "Cierre_Caja", fechaInicio: "Fecha Inicio:", 
+        fechaFin: "Fecha Fin:", excelCsv: "Excel / CSV", imprimirPdf: "Imprimir PDF", procesandoNube: "Procesando transacciones en la nube...", 
+        ingresosTotales: "INGRESOS TOTALES", consultasTotales: "CONSULTAS TOTALES", insumosDesplazados: "INSUMOS DESPLAZADOS", 
+        ticketPromedio: "TICKET PROMEDIO", finanzasSucursal: "Finanzas por Sucursal", napoles: "Nápoles", obrera: "Obrera", 
+        pedregal: "Pedregal", top5Vendidos: "Top 5 Más Vendidos", detalle: "Detalle", uds: "uds", sinDatos: "Sin datos.", 
+        auditoriaTransacciones: "Auditoría de Transacciones Recientes", noMovimientos: "No se detectaron movimientos en el rango cronológico seleccionado.", 
+        articuloEliminado: "Artículo eliminado",
+        // Módulo Clientes y Expedientes
+        directorioExpedientes: "Directorio y Expedientes Clínicos", placeholderBuscarCliente: "🔍 Buscar paciente por nombre o teléfono...", 
+        visitas: "Visitas", totalInvertido: "Total Invertido", acciones: "Acciones", verHistorialCompleto: "Ver Historial Completo", 
+        sinTelefono: "Sin teléfono", articulo: "Artículo", pUnit: "P. Unit", importe: "Importe", totalTicket: "Total Ticket:", 
+        sinRegistrosCompras: "No hay registros de compras.",
+        // Módulo Configuración y Usuarios
+        gestionUsuariosPermisos: "Gestión de Usuarios y Permisos", registrarEmpleado: "Registrar Empleado", cargandoPersonal: "Cargando personal...", 
+        empleado: "Empleado", rolPrincipal: "Rol Principal", clinica: "Clínica", permisosAccesoModulos: "Permisos de Acceso a Módulos (Vistas)", 
+        activo: "Activo", suspendido: "Suspendido", recepcionista: "Recepcionista", gerente: "Gerente", adminGlobal: "Admin Global", 
+        todasGlobal: "Todas (Global)", accesoRestringido: "Acceso Restringido", soloAdminConfig: "Solo los administradores pueden gestionar la configuración del sistema.", 
+        altaNuevoEmpleado: "Alta de Nuevo Empleado", correoLogin: "Correo Electrónico (Para login)", contrasenaTemporal: "Contraseña Temporal", 
+        rol: "Rol", clinicaAsignada: "Clínica Asignada", crearCuenta: "Crear Cuenta", errorCrearUsuario: "Error al crear usuario: ", 
+        usuarioCreadoExito: "Usuario creado exitosamente. Por seguridad de Supabase, se ha cerrado tu sesión administrativa para iniciar la del nuevo empleado. Por favor, vuelve a iniciar sesión como Admin.",
+        errorActualizandoPermisos: "Error actualizando permisos: ",
+        // Módulo Reportes
+        noDatosExportar: "No hay datos en el rango seleccionado para exportar.", folio: "Folio", fechaHora: "Fecha / Hora", 
+        sucursalEmisora: "Sucursal Emisora", montoCobrado: "Monto Cobrado", cierreCaja: "Cierre_Caja", fechaInicio: "Fecha Inicio:", 
+        fechaFin: "Fecha Fin:", excelCsv: "Excel / CSV", imprimirPdf: "Imprimir PDF", procesandoNube: "Procesando transacciones en la nube...", 
+        ingresosTotales: "INGRESOS TOTALES", consultasTotales: "CONSULTAS TOTALES", insumosDesplazados: "INSUMOS DESPLAZADOS", 
+        ticketPromedio: "TICKET PROMEDIO", finanzasSucursal: "Finanzas por Sucursal", napoles: "Nápoles", obrera: "Obrera", 
+        pedregal: "Pedregal", top5Vendidos: "Top 5 Más Vendidos", detalle: "Detalle", uds: "uds", sinDatos: "Sin datos.", 
+        auditoriaTransacciones: "Auditoría de Transacciones Recientes", noMovimientos: "No se detectaron movimientos en el rango cronológico seleccionado.", 
+        articuloEliminado: "Artículo eliminado", desgloseFinanciero: "Desglose Financiero por Sucursal", ingresosConsultas: "Ingresos por Consultas", 
+        ingresosProductos: "Ingresos por Productos", participacion: "Participación",
+        // Módulo Consumos Médicos
+        insumosMedicos: "Insumos Médicos", registroConsumo: "Registro de Salidas", directorioDoctores: "Directorio Médico",
+        reportesConsumo: "Reportes de Consumo", seleccionaDoctor: "-- Selecciona un Doctor --", registrarSalida: "REGISTRAR SALIDA",
+        nuevoDoctor: "Nuevo Doctor", especialidad: "Especialidad", crearDoctor: "Registrar Médico",
+        historialDoctores: "Historial de Consumo por Doctor", reporteMensual: "Reporte Mensual",
+        articulosEntregados: "Artículos Entregados", consumoRegistrado: "Consumo registrado y descontado del inventario exitosamente."
+    },
+    en: {
+        // Generales y Sidebar
+        panelControl: "Control Panel", puntoVenta: "Point of Sale", inventario: "Inventory", 
+        promociones: "Promotions", reportes: "Reports", clientes: "Customers", configuracion: "Settings", 
+        cerrarSesion: "Logout", enLinea: "Online", sucursal: "Branch", todas: "All",
+        // Módulo Ventas
+        buscar: "SEARCH", producto: "Product", tipoPrecio: "Price Type", unitario: "Unit", 
+        cantidadAbrev: "Qty.", importeNeto: "Net Amount", esperandoLecturas: "Waiting for scans...", 
+        anadirRapido: "Quick Add", verCatalogo: "View Full Catalog", subtotal: "Subtotal:", 
+        descuentos: "Discounts:", asignarPaciente: "Assign Patient:", publicoGeneral: "-- General Public --", 
+        formaPago: "Payment Method:", efectivo: "Cash", tarjeta: "Card", total: "TOTAL:", 
+        cobrar: "CHARGE", catalogoProductos: "Product Catalog", buscarNombreCodigo: "🔍 Search by name or code...", 
+        codigo: "Code", nombre: "Name", precio: "Price", agregar: "Add", 
+        registrarPaciente: "Quick Register Patient", nombreCompleto: "Full Name", telefono: "Phone", 
+        guardarSeleccionar: "Save & Select", cancelar: "Cancel", 
+        placeholderEscanear: "[Ready to scan] Swipe barcode...", procesando: "PROCESSING...", 
+        carritoVacio: "Empty cart.", cobradoExito: "Successfully charged in", general: "General", mayoreo: "Wholesale", distribuidor: "Distributor",
+        // Módulo Inventario
+        catalogo: "Catalog", familiasGrupos: "Families / Groups", kardex: "Kardex", nuevoProducto: "New Product", 
+        familia: "Family", stock: "Stock", ajustar: "Adjust", suelto: "Single", familiasAgrupaciones: "Families & Groups", 
+        crearFamilia: "Create Family", id: "ID", nombreFamilia: "Family Name", accionesFamilia: "Family Actions", 
+        editarIntegrantes: "Edit Members", fijarPrecioMasivo: "Set Mass Price", noFamiliasCreadas: "No families created yet.", 
+        kardexAuditoria: "Audit Kardex", fecha: "Date", movimiento: "Movement", cantidad: "Quantity", motivo: "Reason", 
+        editarFamilia: "Edit Family", nuevaFamilia: "New Family", labelNombreFamilia: "Family Name", 
+        ejemploFamilia: "E.g. Steel Needles", seleccionaProductosFamilia: "Select products that belong to this family:", 
+        guardarFamilia: "Save Family", nuevoArticulo: "New Item", familiaOpcional: "Family (Optional)", 
+        sinGrupo: "-- No Group (Single) --", codigoBarras: "Barcode", nombreArticulo: "Item Name", 
+        preciosInstruccion: "Prices (Leave blank to copy General)", generalReq: "General *", guardarArticulo: "Save Item", 
+        cantidadInvalida: "Invalid quantity", stockActualizado: "Stock updated.", preciosInvalidos: "Invalid prices.", 
+        preciosActualizadosGlobal: "Prices updated in all branches.", promptPrecioMasivo1: "Enter the new GENERAL PRICE for all items in the family", 
+        promptPrecioMasivo2: "Wholesale and distributor prices will match this.", preciosMasivosAplicados: "Mass prices successfully applied to all family members.", 
+        nombreFamiliaObligatorio: "Family name is required.", faltanCampos: "Missing required fields.", familiaGuardadaExito: "successfully saved.",
+        // Módulo Promociones
+        llenaCampos: "Fill in the required fields.", seleccionaProductoAlert: "Select a product.", seleccionaFamiliaAlert: "Select a family.", 
+        errorCrear: "Error creating: ", campanaLanzada: "Campaign launched successfully.", confirmarBajaCampana: "Do you want to deactivate this campaign?", 
+        panelPromociones: "Promotions Panel", crearCampana: "Create Campaign", campana: "Campaign", aplicaA: "Applies to", 
+        mecanica: "Mechanic", vigencia: "Validity", estado: "Status", precioFijo: "Fixed Price", lleva: "Buy", 
+        gratis: "Free", familiaDosPuntos: "Family: ", productoDosPuntos: "Product: ", vigente: "ACTIVE", 
+        inactiva: "INACTIVE", nuevaPromocion: "New Promotion", porProducto: "By Product", porFamilia: "By Family (Group)", 
+        seleccionaProducto: "-- Select Product --", seleccionaFamilia: "-- Select Family --", 
+        nombrePromocionEjemplo: "Name (E.g. Buy 2 Get 1 Steel Needles)", esquemaDescuento: "Discount Scheme:", porcentaje: "Percentage (%)", 
+        porVolumen: "By Volume (E.g. Buy 2 Get 1 Free)", llevaTotal: "Buy (Total units):", ej3: "E.g. 3", descuentaGratis: "Discount (Free):", 
+        ej1: "E.g. 1", valorDescuento: "Discount value", inicio: "Start:", fin: "End:", lanzarOferta: "Launch Offer",
+        // Módulo Reportes
+        noDatosExportar: "No data in the selected range to export.", folio: "Invoice", fechaHora: "Date / Time", 
+        sucursalEmisora: "Issuing Branch", montoCobrado: "Amount Charged", cierreCaja: "Register_Close", fechaInicio: "Start Date:", 
+        fechaFin: "End Date:", excelCsv: "Excel / CSV", imprimirPdf: "Print PDF", procesandoNube: "Processing transactions in the cloud...", 
+        ingresosTotales: "TOTAL REVENUE", consultasTotales: "TOTAL CONSULTATIONS", insumosDesplazados: "ITEMS SOLD", 
+        ticketPromedio: "AVERAGE TICKET", finanzasSucursal: "Finances by Branch", napoles: "Napoles", obrera: "Obrera", 
+        pedregal: "Pedregal", top5Vendidos: "Top 5 Best Sellers", detalle: "Detail", uds: "units", sinDatos: "No data.", 
+        auditoriaTransacciones: "Recent Transactions Audit", noMovimientos: "No movements detected in the selected chronological range.", 
+        articuloEliminado: "Deleted item",
+        // Módulo Clientes y Expedientes
+        directorioExpedientes: "Directory & Clinical Records", placeholderBuscarCliente: "🔍 Search patient by name or phone...", 
+        visitas: "Visits", totalInvertido: "Total Invested", acciones: "Actions", verHistorialCompleto: "View Full History", 
+        sinTelefono: "No phone", articulo: "Item", pUnit: "Unit P.", importe: "Amount", totalTicket: "Ticket Total:", 
+        sinRegistrosCompras: "No purchase records found.",
+        // Módulo Configuración y Usuarios
+        gestionUsuariosPermisos: "User & Permissions Management", registrarEmpleado: "Register Employee", cargandoPersonal: "Loading staff...", 
+        empleado: "Employee", rolPrincipal: "Main Role", clinica: "Clinic", permisosAccesoModulos: "Module Access Permissions (Views)", 
+        activo: "Active", suspendido: "Suspended", recepcionista: "Receptionist", gerente: "Manager", adminGlobal: "Global Admin", 
+        todasGlobal: "All (Global)", accesoRestringido: "Restricted Access", soloAdminConfig: "Only administrators can manage system settings.", 
+        altaNuevoEmpleado: "New Employee Registration", correoLogin: "Email (For login)", contrasenaTemporal: "Temporary Password", 
+        rol: "Role", clinicaAsignada: "Assigned Clinic", crearCuenta: "Create Account", errorCrearUsuario: "Error creating user: ", 
+        usuarioCreadoExito: "User successfully created. For security reasons, your admin session has been closed. Please log back in as Admin.",
+        errorActualizandoPermisos: "Error updating permissions: ",
+        // Módulo Reportes
+        noDatosExportar: "No data in the selected range to export.", folio: "Invoice", fechaHora: "Date / Time", 
+        sucursalEmisora: "Issuing Branch", montoCobrado: "Amount Charged", cierreCaja: "Register_Close", fechaInicio: "Start Date:", 
+        fechaFin: "End Date:", excelCsv: "Excel / CSV", imprimirPdf: "Print PDF", procesandoNube: "Processing transactions in the cloud...", 
+        ingresosTotales: "TOTAL REVENUE", consultasTotales: "TOTAL CONSULTATIONS", insumosDesplazados: "ITEMS SOLD", 
+        ticketPromedio: "AVERAGE TICKET", finanzasSucursal: "Finances by Branch", napoles: "Napoles", obrera: "Obrera", 
+        pedregal: "Pedregal", top5Vendidos: "Top 5 Best Sellers", detalle: "Detail", uds: "units", sinDatos: "No data.", 
+        auditoriaTransacciones: "Recent Transactions Audit", noMovimientos: "No movements detected in the selected chronological range.", 
+        articuloEliminado: "Deleted item", desgloseFinanciero: "Financial Breakdown by Branch", ingresosConsultas: "Consultation Revenue", 
+        ingresosProductos: "Product Revenue", participacion: "Share",
+        // Módulo Consumos Médicos
+        insumosMedicos: "Medical Supplies", registroConsumo: "Issue Supplies", directorioDoctores: "Medical Directory",
+        reportesConsumo: "Consumption Reports", seleccionaDoctor: "-- Select a Doctor --", registrarSalida: "ISSUE SUPPLIES",
+        nuevoDoctor: "New Doctor", especialidad: "Specialty", crearDoctor: "Register Doctor",
+        historialDoctores: "Doctor Consumption History", reporteMensual: "Monthly Report",
+        articulosEntregados: "Items Delivered", consumoRegistrado: "Supplies issued and inventory deducted successfully."
+    },
+    zh: {
+        // Generales y Sidebar
+        panelControl: "控制面板", puntoVenta: "销售终端", inventario: "库存", 
+        promociones: "促销", reportes: "报告", clientes: "客户", configuracion: "设置", 
+        cerrarSesion: "登出", enLinea: "在线", sucursal: "分店", todas: "全部",
+        // Módulo Ventas
+        buscar: "搜索", producto: "产品", tipoPrecio: "价格类型", unitario: "单价", 
+        cantidadAbrev: "数量", importeNeto: "净额", esperandoLecturas: "等待扫描...", 
+        anadirRapido: "快速添加", verCatalogo: "查看完整目录", subtotal: "小计:", 
+        descuentos: "折扣:", asignarPaciente: "分配患者:", publicoGeneral: "-- 普通大众 --", 
+        formaPago: "付款方式:", efectivo: "现金", tarjeta: "刷卡", total: "总计:", 
+        cobrar: "收费", catalogoProductos: "产品目录", buscarNombreCodigo: "🔍 按名称或代码搜索...", 
+        codigo: "代码", nombre: "名称", precio: "价格", agregar: "添加", 
+        registrarPaciente: "快速注册患者", nombreCompleto: "全名", telefono: "电话", 
+        guardarSeleccionar: "保存并选择", cancelar: "取消", 
+        placeholderEscanear: "[准备扫描] 刷条形码...", procesando: "处理中...", 
+        carritoVacio: "购物车为空。", cobradoExito: "收费成功:", general: "常规", mayoreo: "批发", distribuidor: "经销商",
+        // Módulo Inventario
+        catalogo: "目录", familiasGrupos: "系列 / 分组", kardex: "出入库记录 (Kardex)", nuevoProducto: "新产品", 
+        familia: "系列", stock: "库存量", ajustar: "调整", suelto: "单个", familiasAgrupaciones: "系列和分组", 
+        crearFamilia: "创建系列", id: "编号", nombreFamilia: "系列名称", accionesFamilia: "系列操作", 
+        editarIntegrantes: "编辑成员", fijarPrecioMasivo: "批量定价", noFamiliasCreadas: "尚未创建系列。", 
+        kardexAuditoria: "审计记录", fecha: "日期", movimiento: "动态", cantidad: "数量", motivo: "原因", 
+        editarFamilia: "编辑系列", nuevaFamilia: "新系列", labelNombreFamilia: "系列名称", 
+        ejemploFamilia: "例：钢针", seleccionaProductosFamilia: "选择属于此系列的产品：", 
+        guardarFamilia: "保存系列", nuevoArticulo: "新物品", familiaOpcional: "系列 (可选)", 
+        sinGrupo: "-- 无分组 (单个) --", codigoBarras: "条形码", nombreArticulo: "物品名称", 
+        preciosInstruccion: "价格 (留空则复制常规价格)", generalReq: "常规 *", guardarArticulo: "保存物品", 
+        cantidadInvalida: "数量无效", stockActualizado: "库存已更新。", preciosInvalidos: "价格无效。", 
+        preciosActualizadosGlobal: "所有分店的价格已更新。", promptPrecioMasivo1: "请输入该系列所有物品的新常规价格", 
+        promptPrecioMasivo2: "批发和经销商价格将与此一致。", preciosMasivosAplicados: "批量价格已成功应用于所有系列成员。", 
+        nombreFamiliaObligatorio: "系列名称必填。", faltanCampos: "缺少必填字段。", familiaGuardadaExito: "保存成功。",
+        // Módulo Promociones
+        llenaCampos: "请填写必填字段。", seleccionaProductoAlert: "请选择一个产品。", seleccionaFamiliaAlert: "请选择一个系列。", 
+        errorCrear: "创建错误: ", campanaLanzada: "活动成功发布。", confirmarBajaCampana: "您要取消此活动吗？", 
+        panelPromociones: "促销面板", crearCampana: "创建活动", campana: "活动", aplicaA: "适用于", 
+        mecanica: "机制", vigencia: "有效期", estado: "状态", precioFijo: "固定价格", lleva: "买", 
+        gratis: "赠", familiaDosPuntos: "系列: ", productoDosPuntos: "产品: ", vigente: "生效中", 
+        inactiva: "未生效", nuevaPromocion: "新促销", porProducto: "按产品", porFamilia: "按系列 (分组)", 
+        seleccionaProducto: "-- 选择产品 --", seleccionaFamilia: "-- 选择系列 --", 
+        nombrePromocionEjemplo: "名称 (例：钢针买二送一)", esquemaDescuento: "折扣方案:", porcentaje: "百分比 (%)", 
+        porVolumen: "按数量 (例：买二送一)", llevaTotal: "购买 (总件数):", ej3: "例: 3", descuentaGratis: "折扣 (免费):", 
+        ej1: "例: 1", valorDescuento: "折扣值", inicio: "开始:", fin: "结束:", lanzarOferta: "发布优惠",
+        // Módulo Reportes
+        noDatosExportar: "所选范围内没有可导出的数据。", folio: "单号", fechaHora: "日期/时间", 
+        sucursalEmisora: "开单分店", montoCobrado: "收费金额", cierreCaja: "结算_报表", fechaInicio: "开始日期:", 
+        fechaFin: "结束日期:", excelCsv: "导出 Excel / CSV", imprimirPdf: "打印 PDF", procesandoNube: "正在云端处理交易...", 
+        ingresosTotales: "总收入", consultasTotales: "总咨询量", insumosDesplazados: "售出商品", 
+        ticketPromedio: "客单价", finanzasSucursal: "各分店财务", napoles: "Napoles (那不勒斯)", obrera: "Obrera (奥夫雷拉)", 
+        pedregal: "Pedregal (佩德雷加尔)", top5Vendidos: "最畅销前五名", detalle: "明细", uds: "件", sinDatos: "无数据。", 
+        auditoriaTransacciones: "近期交易审计", noMovimientos: "在所选时间范围内未检测到任何交易。", 
+        articuloEliminado: "已删除物品",
+        // Módulo Clientes y Expedientes
+        directorioExpedientes: "患者名录与临床档案", placeholderBuscarCliente: "🔍 按姓名或电话搜索患者...", 
+        visitas: "访问次数", totalInvertido: "总消费", acciones: "操作", verHistorialCompleto: "查看完整历史", 
+        sinTelefono: "无电话", articulo: "物品", pUnit: "单价", importe: "小计", totalTicket: "账单总计:", 
+        sinRegistrosCompras: "没有购买记录。",
+        // Módulo Configuración y Usuarios
+        gestionUsuariosPermisos: "用户与权限管理", registrarEmpleado: "注册员工", cargandoPersonal: "正在加载员工...", 
+        empleado: "员工", rolPrincipal: "主要角色", clinica: "诊所", permisosAccesoModulos: "模块访问权限 (视图)", 
+        activo: "活跃", suspendido: "已暂停", recepcionista: "前台收银", gerente: "经理", adminGlobal: "全局管理员", 
+        todasGlobal: "全部 (全局)", accesoRestringido: "访问受限", soloAdminConfig: "只有管理员可以管理系统设置。", 
+        altaNuevoEmpleado: "注册新员工", correoLogin: "电子邮箱 (用于登录)", contrasenaTemporal: "临时密码", 
+        rol: "角色", clinicaAsignada: "分配诊所", crearCuenta: "创建账户", errorCrearUsuario: "创建用户错误: ", 
+        usuarioCreadoExito: "用户创建成功。为了安全起见，您的管理员会话已关闭。请重新以管理员身份登录。",
+        errorActualizandoPermisos: "更新权限错误: ",
+        // Módulo Reportes
+        noDatosExportar: "所选范围内没有可导出的数据。", folio: "单号", fechaHora: "日期/时间", 
+        sucursalEmisora: "开单分店", montoCobrado: "收费金额", cierreCaja: "结算_报表", fechaInicio: "开始日期:", 
+        fechaFin: "结束日期:", excelCsv: "导出 Excel / CSV", imprimirPdf: "打印 PDF", procesandoNube: "正在云端处理交易...", 
+        ingresosTotales: "总收入", consultasTotales: "总咨询量", insumosDesplazados: "售出商品", 
+        ticketPromedio: "客单价", finanzasSucursal: "各分店财务", napoles: "Napoles (那不勒斯)", obrera: "Obrera (奥夫雷拉)", 
+        pedregal: "Pedregal (佩德雷加尔)", top5Vendidos: "最畅销前五名", detalle: "明细", uds: "件", sinDatos: "无数据。", 
+        auditoriaTransacciones: "近期交易审计", noMovimientos: "在所选时间范围内未检测到任何交易。", 
+        articuloEliminado: "已删除物品", desgloseFinanciero: "按分店财务明细", ingresosConsultas: "咨询收入", 
+        ingresosProductos: "产品收入", participacion: "份额",
+        // Módulo Consumos Médicos
+        insumosMedicos: "医疗用品", registroConsumo: "出库登记", directorioDoctores: "医生目录",
+        reportesConsumo: "消耗报告", seleccionaDoctor: "-- 选择医生 --", registrarSalida: "确认出库",
+        nuevoDoctor: "新医生", especialidad: "专业", crearDoctor: "注册医生",
+        historialDoctores: "医生消耗历史记录", reporteMensual: "月度报告",
+        articulosEntregados: "已交付物品", consumoRegistrado: "消耗已登记，库存已成功扣除。"
+    }
+};
+
+const LanguageContext = createContext();
+
+export const LanguageProvider = ({ children }) => {
+    const [language, setLanguage] = useState('es');
+    const t = (key) => translations[language][key] || key;
+
+    return (
+        <LanguageContext.Provider value={{ language, setLanguage, t }}>
+            {children}
+        </LanguageContext.Provider>
+    );
+};
+
+export const useLanguage = () => useContext(LanguageContext);

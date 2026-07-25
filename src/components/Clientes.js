@@ -1,15 +1,17 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function Clientes() {
+    const { t } = useLanguage();
+
     const [search, setSearch] = useState('');
     const [clientes, setClientes] = useState([]);
     const [selectedClient, setSelectedClient] = useState(null);
     const [historialCompras, setHistorialCompras] = useState([]);
 
     const fetchClientes = async () => {
-        // Consulta relacional profunda hacia ventas, detalles y productos
         const { data } = await supabase
             .from('clientes')
             .select(`
@@ -40,13 +42,13 @@ export default function Clientes() {
     return (
         <div className="view-section active">
             <div className="panel" style={{overflowY: 'auto'}}>
-                <h2><i className="fa-solid fa-users"></i> Directorio y Expedientes Clínicos</h2>
+                <h2><i className="fa-solid fa-users"></i> {t('directorioExpedientes')}</h2>
                 <div style={{marginBottom: '20px'}}>
                     <input 
                         type="text" 
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="🔍 Buscar paciente por nombre o teléfono..." 
+                        placeholder={t('placeholderBuscarCliente')} 
                         style={{padding: '12px 15px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-dark)', color: 'white', width: '100%', maxWidth: '400px'}}
                     />
                 </div>
@@ -54,23 +56,23 @@ export default function Clientes() {
                 <table className="data-table">
                     <thead>
                         <tr>
-                            <th>Nombre Completo</th>
-                            <th>Teléfono</th>
-                            <th>Visitas</th>
-                            <th>Total Invertido</th>
-                            <th>Acciones</th>
+                            <th>{t('nombreCompleto')}</th>
+                            <th>{t('telefono')}</th>
+                            <th>{t('visitas')}</th>
+                            <th>{t('totalInvertido')}</th>
+                            <th>{t('acciones')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {filtered.map(client => (
                             <tr key={client.id}>
                                 <td><strong>{client.nombre}</strong></td>
-                                <td style={{color: 'var(--text-muted)'}}>{client.telefono || 'N/A'}</td>
+                                <td style={{color: 'var(--text-muted)'}}>{client.telefono || t('sinTelefono')}</td>
                                 <td>{client.ventas?.length || 0}</td>
                                 <td style={{color: 'var(--success)'}}>${client.ventas?.reduce((acc, v) => acc + parseFloat(v.total), 0).toFixed(2)}</td>
                                 <td>
                                     <button className="btn-action" onClick={() => openExpediente(client)} style={{background: 'var(--bg-lighter)'}}>
-                                        <i className="fa-solid fa-folder-open" style={{color: 'var(--accent)'}}></i> Ver Historial Completo
+                                        <i className="fa-solid fa-folder-open" style={{color: 'var(--accent)'}}></i> {t('verHistorialCompleto')}
                                     </button>
                                 </td>
                             </tr>
@@ -79,14 +81,13 @@ export default function Clientes() {
                 </table>
             </div>
 
-            {/* EXPEDIENTE CON DESGLOSE DE PRODUCTOS */}
             {selectedClient && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '10px', width: '650px', maxHeight: '80vh', display: 'flex', flexDirection: 'column'}}>
-                        <div style={{display: 'flex', justifycontent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-color)', paddingBottom: '15px', marginBottom: '15px'}}>
+                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-color)', paddingBottom: '15px', marginBottom: '15px'}}>
                             <div>
                                 <h3>{selectedClient.nombre}</h3>
-                                <span style={{color: 'var(--text-muted)'}}><i className="fa-solid fa-phone"></i> {selectedClient.telefono || 'Sin teléfono'}</span>
+                                <span style={{color: 'var(--text-muted)'}}><i className="fa-solid fa-phone"></i> {selectedClient.telefono || t('sinTelefono')}</span>
                             </div>
                             <button onClick={() => setSelectedClient(null)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
                         </div>
@@ -96,15 +97,15 @@ export default function Clientes() {
                                 <div key={venta.id} style={{background: 'var(--bg-dark)', padding: '15px', borderRadius: '8px', marginBottom: '15px', border: '1px solid var(--border-color)'}}>
                                     <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px', borderBottom: '1px dashed #333', paddingBottom: '8px'}}>
                                         <span style={{color: 'var(--text-muted)', fontSize: '0.85rem'}}>{new Date(venta.fecha).toLocaleString()}</span>
-                                        <span style={{fontFamily: 'monospace'}}>Folio: #{venta.id.toString().padStart(5, '0')}</span>
+                                        <span style={{fontFamily: 'monospace'}}>{t('folio')}: #{venta.id.toString().padStart(5, '0')}</span>
                                     </div>
                                     <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem'}}>
                                         <thead>
                                             <tr style={{color: 'var(--text-muted)', textAlign: 'left'}}>
-                                                <th>Artículo</th>
-                                                <th>Cant.</th>
-                                                <th>P. Unit</th>
-                                                <th>Importe</th>
+                                                <th>{t('articulo')}</th>
+                                                <th>{t('cantidadAbrev')}</th>
+                                                <th>{t('pUnit')}</th>
+                                                <th>{t('importe')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -121,11 +122,11 @@ export default function Clientes() {
                                         </tbody>
                                     </table>
                                     <div style={{textAlign: 'right', marginTop: '10px', color: 'var(--success)', fontWeight: 'bold', fontSize: '1.1rem'}}>
-                                        Total Ticket: ${parseFloat(venta.total).toFixed(2)}
+                                        {t('totalTicket')} ${parseFloat(venta.total).toFixed(2)}
                                     </div>
                                 </div>
                             ))}
-                            {historialCompras.length === 0 && <p style={{color:'var(--text-muted)', textAlign:'center'}}>No hay registros de compras.</p>}
+                            {historialCompras.length === 0 && <p style={{color:'var(--text-muted)', textAlign:'center'}}>{t('sinRegistrosCompras')}</p>}
                         </div>
                     </div>
                 </div>
