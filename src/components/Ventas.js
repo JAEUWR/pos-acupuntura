@@ -11,6 +11,8 @@ export default function Ventas({ branch = 'napoles' }) {
     const [productosDB, setProductosDB] = useState([]);
     const [clientesDB, setClientesDB] = useState([]);
     const [promocionesDB, setPromocionesDB] = useState([]);
+    
+    // Estado del cliente (Inicia vacío para obligar a seleccionar)
     const [selectedClient, setSelectedClient] = useState('');
     const [metodoPago, setMetodoPago] = useState('efectivo');
     const [montoRecibido, setMontoRecibido] = useState('');
@@ -22,6 +24,10 @@ export default function Ventas({ branch = 'napoles' }) {
     const [showNewClientModal, setShowNewClientModal] = useState(false);
     const [newClientName, setNewClientName] = useState('');
     const [newClientPhone, setNewClientPhone] = useState('');
+
+    // Estados para el nuevo Menú Desplegable Inteligente de Clientes
+    const [showClientDropdown, setShowClientDropdown] = useState(false);
+    const [clientSearchTerm, setClientSearchTerm] = useState('');
 
     const fetchDatos = async () => {
         const { data: prods } = await supabase.from('productos').select('*');
@@ -37,6 +43,23 @@ export default function Ventas({ branch = 'napoles' }) {
     useEffect(() => {
         fetchDatos();
         scannerInputRef.current?.focus();
+    }, []);
+
+    // 🚀 ESCÁNER UNIVERSAL (MODO FANTASMA)
+    useEffect(() => {
+        const handleGlobalKeyDown = (e) => {
+            const activeElement = document.activeElement;
+            const isInputFocused = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.tagName === 'SELECT');
+            
+            // Si el recepcionista no está escribiendo en ningún input y presiona una tecla válida (como el escáner)
+            if (!isInputFocused && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                // Enfocamos el input del escáner en milisegundos para atrapar el código
+                scannerInputRef.current?.focus();
+            }
+        };
+        
+        window.addEventListener('keydown', handleGlobalKeyDown);
+        return () => window.removeEventListener('keydown', handleGlobalKeyDown);
     }, []);
 
     const branchIdMap = { napoles: 1, obrera: 2, pedregal: 3 };
@@ -62,7 +85,6 @@ export default function Ventas({ branch = 'napoles' }) {
                 id: product.id, code: product.codigo_barras, name: product.nombre, 
                 grupo_id: product.grupo_id,
                 qty: 1, tipo_precio: 'general', precio_aplicado: product.precio,
-                // SE AGREGA precio_medico AL OBJETO DE OPCIONES
                 opciones_precio: { 
                     general: product.precio, 
                     mayoreo: product.precio_mayoreo, 
@@ -151,7 +173,9 @@ export default function Ventas({ branch = 'napoles' }) {
     const handleCheckout = async () => {
         if (cartRender.length === 0) return alert(t('carritoVacio'));
         
-        // NUEVA VALIDACIÓN DE EFECTIVO
+        // VALIDACIÓN DE CLIENTE OBLIGATORIO
+        if (!selectedClient) return alert('Por favor, selecciona un paciente o selecciona Público General obligatoriamente.');
+
         if (metodoPago === 'efectivo') {
             if (!montoRecibido || parseFloat(montoRecibido) < totalCobrar) {
                 return alert(t('montoInsuficiente'));
@@ -167,8 +191,10 @@ export default function Ventas({ branch = 'napoles' }) {
             precio: item.qty > 0 ? (item.importeNeto / item.qty).toFixed(2) : item.precio_aplicado 
         }));
 
-        const clienteIdFinal = selectedClient ? parseInt(selectedClient) : null;
-        const { data: ventaInfo, error } = await supabase.rpc('procesar_venta', { 
+        // Convertir 'general' a valor null para la base de datos
+        const clienteIdFinal = selectedClient === 'general' ? null : parseInt(selectedClient);
+        
+        const { error } = await supabase.rpc('procesar_venta', { 
             p_sucursal_id: sucursalId, p_cliente_id: clienteIdFinal, p_total: totalCobrar, 
             p_metodo_pago: metodoPago, p_items: payloadItems 
         });
@@ -176,18 +202,11 @@ export default function Ventas({ branch = 'napoles' }) {
         if (error) {
             alert('Error: ' + error.message);
         } else {
-            // NUEVO: SI ES EFECTIVO, MOSTRAR CAMBIO Y SUMAR A LA CAJA
             if (metodoPago === 'efectivo') {
                 const cambioDeVenta = parseFloat(montoRecibido) - totalCobrar;
-                
-                // Sumamos el dinero a la tabla de caja
                 await supabase.rpc('registrar_movimiento_caja', {
-                    p_sucursal_id: sucursalId,
-                    p_tipo: 'venta_efectivo',
-                    p_monto: totalCobrar,
-                    p_motivo: `Venta de mostrador`
+                    p_sucursal_id: sucursalId, p_tipo: 'venta_efectivo', p_monto: totalCobrar, p_motivo: `Venta de mostrador`
                 });
-
                 alert(`${t('cobradoExito')} EFECTIVO!\n\n${t('cambio')}: $${cambioDeVenta.toFixed(2)}`);
             } else {
                 alert(`${t('cobradoExito')} ${t(metodoPago).toUpperCase()}!`);
@@ -223,7 +242,6 @@ export default function Ventas({ branch = 'napoles' }) {
                                             {item.msjPromo && <span style={{fontSize:'0.75rem', background:'var(--accent)', color:'white', padding:'2px 6px', borderRadius:'4px', display:'inline-block', marginTop:'4px'}}><i className="fa-solid fa-tag"></i> {item.msjPromo}</span>}
                                         </td>
                                         <td>
-                                            {/* SE AGREGA LA OPCIÓN DE PRECIO MÉDICO AL SELECT */}
                                             <select value={item.tipo_precio} onChange={(e) => updatePriceType(item.id, e.target.value)} style={{background:'var(--bg-dark)', color:'white', padding:'5px', borderRadius: '4px'}}>
                                                 <option value="general">{t('general')}</option>
                                                 <option value="mayoreo">{t('mayoreo')}</option>
@@ -271,13 +289,64 @@ export default function Ventas({ branch = 'napoles' }) {
                     <div style={{display:'flex', justifyContent:'space-between', color:'var(--accent)', marginBottom:'10px'}}><span>{t('descuentos')}</span><span>-${totalDescuentos.toFixed(2)}</span></div>
                     
                     <div style={{marginBottom: '15px', borderTop: '1px dashed var(--border-color)', paddingTop: '15px'}}>
-                        <label style={{display: 'block', color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '5px'}}>{t('asignarPaciente')}</label>
+                        <label style={{display: 'block', color: 'white', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px'}}>{t('asignarPaciente')} *</label>
                         <div style={{display: 'flex', gap: '8px'}}>
-                            <select value={selectedClient} onChange={(e) => { setSelectedClient(e.target.value); scannerInputRef.current?.focus(); }} style={{flex: 1, padding: '10px', background: 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}}>
-                                <option value="">{t('publicoGeneral')}</option>
-                                {clientesDB.map(cli => <option key={cli.id} value={cli.id}>{cli.nombre}</option>)}
-                            </select>
-                            <button className="btn-action" onClick={() => setShowNewClientModal(true)} style={{padding: '10px 14px', background: 'var(--bg-lighter)', border: '1px solid var(--border-color)', color: 'white'}}><i className="fa-solid fa-user-plus"></i></button>
+                            
+                            {/* NUEVO MENU DESPLEGABLE INTELIGENTE DE CLIENTES */}
+                            <div style={{ position: 'relative', flex: 1 }}>
+                                <div 
+                                    onClick={() => { setShowClientDropdown(!showClientDropdown); setClientSearchTerm(''); }}
+                                    style={{ padding: '10px 15px', background: 'var(--bg-dark)', color: selectedClient ? 'white' : 'var(--text-muted)', border: selectedClient ? '1px solid var(--border-color)' : '1px dashed var(--primary-red)', borderRadius: '6px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                >
+                                    <span>
+                                        {selectedClient === 'general' 
+                                            ? t('publicoGeneral') 
+                                            : (selectedClient ? clientesDB.find(c => c.id === selectedClient)?.nombre : '-- Selecciona un paciente --')}
+                                    </span>
+                                    <i className="fa-solid fa-chevron-down" style={{fontSize: '0.8rem'}}></i>
+                                </div>
+                                
+                                {showClientDropdown && (
+                                    <>
+                                        <div style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10}} onClick={() => setShowClientDropdown(false)}></div>
+                                        <div style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '6px', zIndex: 11, marginBottom: '5px', boxShadow: '0 -5px 15px rgba(0,0,0,0.5)', padding: '10px' }}>
+                                            <input 
+                                                type="text" 
+                                                autoFocus
+                                                placeholder="🔍 Buscar por nombre o teléfono..." 
+                                                value={clientSearchTerm} 
+                                                onChange={(e) => setClientSearchTerm(e.target.value)} 
+                                                style={{width: '100%', padding: '10px', background: 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', marginBottom: '10px'}}
+                                            />
+                                            <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                {t('publicoGeneral').toLowerCase().includes(clientSearchTerm.toLowerCase()) && (
+                                                    <div 
+                                                        onClick={() => { setSelectedClient('general'); setShowClientDropdown(false); scannerInputRef.current?.focus(); }}
+                                                        style={{ padding: '10px', borderRadius: '4px', cursor: 'pointer', color: 'var(--accent)', fontWeight: 'bold' }}
+                                                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-lighter)'}
+                                                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                                    >
+                                                        {t('publicoGeneral')}
+                                                    </div>
+                                                )}
+                                                {clientesDB.filter(c => c.nombre.toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono && c.telefono.includes(clientSearchTerm))).map(cli => (
+                                                    <div 
+                                                        key={cli.id}
+                                                        onClick={() => { setSelectedClient(cli.id); setShowClientDropdown(false); scannerInputRef.current?.focus(); }}
+                                                        style={{ padding: '10px', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-muted)' }}
+                                                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-lighter)'; e.currentTarget.style.color = 'white'; }}
+                                                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                                                    >
+                                                        {cli.nombre} {cli.telefono ? `(${cli.telefono})` : ''}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+
+                            <button className="btn-action" onClick={() => setShowNewClientModal(true)} style={{padding: '10px 14px', background: 'var(--bg-lighter)', border: '1px solid var(--border-color)', color: 'white'}} title={t('registrarPaciente')}><i className="fa-solid fa-user-plus"></i></button>
                         </div>
                     </div>
 
@@ -289,8 +358,7 @@ export default function Ventas({ branch = 'napoles' }) {
                             <button onClick={() => setMetodoPago('transferencia')} style={{flex: 1, padding: '10px', background: metodoPago === 'transferencia' ? '#6a1b9a' : 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}}><i className="fa-solid fa-building-columns"></i> {t('transferencia')}</button>
                         </div>
                     </div>
-                    
-                    {/* NUEVA ZONA DE CÁLCULO DE CAMBIO (Solo visible en efectivo) */}
+
                     {metodoPago === 'efectivo' && (
                         <div style={{marginBottom: '20px', background: '#1b5e2011', padding: '15px', borderRadius: '8px', border: '1px dashed var(--success)'}}>
                             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
@@ -309,8 +377,6 @@ export default function Ventas({ branch = 'napoles' }) {
                             </div>
                         </div>
                     )}
-
-                    <div className="totals-row grand-total"><span>{t('total')}</span><span style={{color: 'var(--success)'}}>${totalCobrar.toFixed(2)}</span></div>
 
                     <div className="totals-row grand-total"><span>{t('total')}</span><span style={{color: 'var(--success)'}}>${totalCobrar.toFixed(2)}</span></div>
                     <button id="btn-cobrar" onClick={handleCheckout} className="pay-btn" style={{width:'100%', padding:'20px', background:'var(--primary-red)', color:'white', border:'none', borderRadius:'8px', fontSize:'1.3rem', fontWeight:'bold', cursor:'pointer'}}>{t('cobrar')}</button>
