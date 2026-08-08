@@ -1,11 +1,9 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-// IMPORTAMOS EL IDIOMA
 import { useLanguage } from '../context/LanguageContext';
 
 export default function Ventas({ branch = 'napoles' }) {
-    // EXTRAEMOS LA FUNCIÓN DE TRADUCCIÓN
     const { t } = useLanguage();
 
     const [barcode, setBarcode] = useState('');
@@ -15,6 +13,7 @@ export default function Ventas({ branch = 'napoles' }) {
     const [promocionesDB, setPromocionesDB] = useState([]);
     const [selectedClient, setSelectedClient] = useState('');
     const [metodoPago, setMetodoPago] = useState('efectivo');
+    const [montoRecibido, setMontoRecibido] = useState('');
     
     const scannerInputRef = useRef(null);
 
@@ -63,7 +62,13 @@ export default function Ventas({ branch = 'napoles' }) {
                 id: product.id, code: product.codigo_barras, name: product.nombre, 
                 grupo_id: product.grupo_id,
                 qty: 1, tipo_precio: 'general', precio_aplicado: product.precio,
-                opciones_precio: { general: product.precio, mayoreo: product.precio_mayoreo, distribuidor: product.precio_distribuidor }
+                // SE AGREGA precio_medico AL OBJETO DE OPCIONES
+                opciones_precio: { 
+                    general: product.precio, 
+                    mayoreo: product.precio_mayoreo, 
+                    distribuidor: product.precio_distribuidor,
+                    medico: product.precio_medico 
+                }
             }];
         });
         setTimeout(() => scannerInputRef.current?.focus(), 50);
@@ -145,6 +150,14 @@ export default function Ventas({ branch = 'napoles' }) {
 
     const handleCheckout = async () => {
         if (cartRender.length === 0) return alert(t('carritoVacio'));
+        
+        // NUEVA VALIDACIÓN DE EFECTIVO
+        if (metodoPago === 'efectivo') {
+            if (!montoRecibido || parseFloat(montoRecibido) < totalCobrar) {
+                return alert(t('montoInsuficiente'));
+            }
+        }
+
         const btn = document.getElementById('btn-cobrar');
         btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${t('procesando')}`;
         btn.disabled = true;
@@ -155,10 +168,33 @@ export default function Ventas({ branch = 'napoles' }) {
         }));
 
         const clienteIdFinal = selectedClient ? parseInt(selectedClient) : null;
-        const { error } = await supabase.rpc('procesar_venta', { p_sucursal_id: sucursalId, p_cliente_id: clienteIdFinal, p_total: totalCobrar, p_metodo_pago: metodoPago, p_items: payloadItems });
+        const { data: ventaInfo, error } = await supabase.rpc('procesar_venta', { 
+            p_sucursal_id: sucursalId, p_cliente_id: clienteIdFinal, p_total: totalCobrar, 
+            p_metodo_pago: metodoPago, p_items: payloadItems 
+        });
 
-        if (error) alert('Error: ' + error.message);
-        else { alert(`${t('cobradoExito')} ${t(metodoPago).toUpperCase()}!`); setCart([]); setSelectedClient(''); }
+        if (error) {
+            alert('Error: ' + error.message);
+        } else {
+            // NUEVO: SI ES EFECTIVO, MOSTRAR CAMBIO Y SUMAR A LA CAJA
+            if (metodoPago === 'efectivo') {
+                const cambioDeVenta = parseFloat(montoRecibido) - totalCobrar;
+                
+                // Sumamos el dinero a la tabla de caja
+                await supabase.rpc('registrar_movimiento_caja', {
+                    p_sucursal_id: sucursalId,
+                    p_tipo: 'venta_efectivo',
+                    p_monto: totalCobrar,
+                    p_motivo: `Venta de mostrador`
+                });
+
+                alert(`${t('cobradoExito')} EFECTIVO!\n\n${t('cambio')}: $${cambioDeVenta.toFixed(2)}`);
+            } else {
+                alert(`${t('cobradoExito')} ${t(metodoPago).toUpperCase()}!`);
+            }
+            
+            setCart([]); setSelectedClient(''); setMontoRecibido('');
+        }
         
         btn.innerHTML = `<i class="fa-solid fa-cash-register"></i> ${t('cobrar')}`; 
         btn.disabled = false;
@@ -187,10 +223,12 @@ export default function Ventas({ branch = 'napoles' }) {
                                             {item.msjPromo && <span style={{fontSize:'0.75rem', background:'var(--accent)', color:'white', padding:'2px 6px', borderRadius:'4px', display:'inline-block', marginTop:'4px'}}><i className="fa-solid fa-tag"></i> {item.msjPromo}</span>}
                                         </td>
                                         <td>
+                                            {/* SE AGREGA LA OPCIÓN DE PRECIO MÉDICO AL SELECT */}
                                             <select value={item.tipo_precio} onChange={(e) => updatePriceType(item.id, e.target.value)} style={{background:'var(--bg-dark)', color:'white', padding:'5px', borderRadius: '4px'}}>
                                                 <option value="general">{t('general')}</option>
                                                 <option value="mayoreo">{t('mayoreo')}</option>
                                                 <option value="distribuidor">{t('distribuidor')}</option>
+                                                <option value="medico">{t('precioMedico')}</option>
                                             </select>
                                         </td>
                                         <td>${item.precio_aplicado.toFixed(2)}</td>
@@ -248,8 +286,31 @@ export default function Ventas({ branch = 'napoles' }) {
                         <div style={{display: 'flex', gap: '10px'}}>
                             <button onClick={() => setMetodoPago('efectivo')} style={{flex: 1, padding: '10px', background: metodoPago === 'efectivo' ? '#1b5e20' : 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}}><i className="fa-solid fa-money-bill-1-wave"></i> {t('efectivo')}</button>
                             <button onClick={() => setMetodoPago('tarjeta')} style={{flex: 1, padding: '10px', background: metodoPago === 'tarjeta' ? '#0d47a1' : 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}}><i className="fa-solid fa-credit-card"></i> {t('tarjeta')}</button>
+                            <button onClick={() => setMetodoPago('transferencia')} style={{flex: 1, padding: '10px', background: metodoPago === 'transferencia' ? '#6a1b9a' : 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}}><i className="fa-solid fa-building-columns"></i> {t('transferencia')}</button>
                         </div>
                     </div>
+                    
+                    {/* NUEVA ZONA DE CÁLCULO DE CAMBIO (Solo visible en efectivo) */}
+                    {metodoPago === 'efectivo' && (
+                        <div style={{marginBottom: '20px', background: '#1b5e2011', padding: '15px', borderRadius: '8px', border: '1px dashed var(--success)'}}>
+                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                                <span style={{color: 'var(--success)'}}>{t('montoRecibido')}</span>
+                                <input 
+                                    type="number" 
+                                    value={montoRecibido} 
+                                    onChange={(e) => setMontoRecibido(e.target.value)} 
+                                    placeholder="$ 0.00"
+                                    style={{width: '120px', padding: '8px', background: 'var(--bg-dark)', color: 'white', border: '1px solid var(--success)', borderRadius: '6px', textAlign: 'right', fontSize: '1.1rem', fontWeight: 'bold'}}
+                                />
+                            </div>
+                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold', fontSize: '1.2rem', color: (parseFloat(montoRecibido || 0) >= totalCobrar) ? 'var(--success)' : 'var(--primary-red)'}}>
+                                <span>{t('cambio')}:</span>
+                                <span>${(parseFloat(montoRecibido || 0) >= totalCobrar) ? (parseFloat(montoRecibido) - totalCobrar).toFixed(2) : '0.00'}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="totals-row grand-total"><span>{t('total')}</span><span style={{color: 'var(--success)'}}>${totalCobrar.toFixed(2)}</span></div>
 
                     <div className="totals-row grand-total"><span>{t('total')}</span><span style={{color: 'var(--success)'}}>${totalCobrar.toFixed(2)}</span></div>
                     <button id="btn-cobrar" onClick={handleCheckout} className="pay-btn" style={{width:'100%', padding:'20px', background:'var(--primary-red)', color:'white', border:'none', borderRadius:'8px', fontSize:'1.3rem', fontWeight:'bold', cursor:'pointer'}}>{t('cobrar')}</button>

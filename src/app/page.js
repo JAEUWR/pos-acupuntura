@@ -12,6 +12,7 @@ import Promociones from '../components/Promociones';
 import Reportes from '../components/Reportes';
 import Clientes from '../components/Clientes';
 import Configuracion from '../components/Configuracion';
+import Caja from '../components/Caja';
 
 // IMPORTAMOS EL PROVEEDOR DE IDIOMAS
 import { LanguageProvider } from '../context/LanguageContext';
@@ -71,10 +72,11 @@ export default function Home() {
                     
                     <div style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
                         {activeView === 'ventas' && <Ventas branch={branch} />}
+                        {activeView === 'caja' && <Caja branch={branch} />}
                         {activeView === 'doctores' && <ConsumosMedicos branch={branch} />}
                         {activeView === 'inventario' && <Inventario branch={branch} />}
                         {activeView === 'promociones' && <Promociones />}
-                        {activeView === 'reportes' && <Reportes />}
+                        {activeView === 'reportes' && <Reportes branch={branch} perfilActual={perfil} />}
                         {activeView === 'clientes' && <Clientes />}
                         {activeView === 'configuracion' && <Configuracion perfilActual={perfil} />}
                     </div>

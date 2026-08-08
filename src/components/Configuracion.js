@@ -79,7 +79,7 @@ export default function Configuracion({ perfilActual }) {
         );
     }
 
-    const modulosDisponibles = ['ventas', 'inventario', 'promociones', 'reportes', 'clientes', 'configuracion', 'doctores'];
+    const modulosDisponibles = ['ventas', 'caja', 'inventario', 'promociones', 'reportes', 'clientes', 'configuracion', 'doctores'];
 
     return (
         <div className="view-section active" style={{ overflowY: 'auto' }}>

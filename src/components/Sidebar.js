@@ -60,6 +60,11 @@ export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
                         <i className="fa-solid fa-cash-register" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('puntoVenta')}
                     </button>
                 )}
+                {hasAccess('caja') && (
+                    <button style={getBtnStyle('caja')} onClick={() => setActiveView('caja')}>
+                        <i className="fa-solid fa-vault" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('flujoCaja')}
+                    </button>
+                )}
                 {hasAccess('doctores') && (
                     <button style={getBtnStyle('doctores')} onClick={() => setActiveView('doctores')}>
                         <i className="fa-solid fa-briefcase-medical" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('insumosMedicos')}
