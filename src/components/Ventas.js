@@ -30,7 +30,8 @@ export default function Ventas({ branch = 'napoles' }) {
     const [clientSearchTerm, setClientSearchTerm] = useState('');
 
     const fetchDatos = async () => {
-        const { data: prods } = await supabase.from('productos').select('*');
+        // FILTRO APLICADO: Solo traer los productos que están activos
+        const { data: prods } = await supabase.from('productos').select('*').eq('activo', true);
         if (prods) setProductosDB(prods);
 
         const { data: clis } = await supabase.from('clientes').select('*').order('nombre', { ascending: true });

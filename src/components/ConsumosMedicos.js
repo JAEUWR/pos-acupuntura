@@ -39,17 +39,20 @@ export default function ConsumosMedicos({ branch = 'napoles' }) {
         const { data: docs } = await supabase.from('doctores').select('*').order('nombre');
         if (docs) setDoctores(docs);
 
-        // NUEVO: Ahora extraemos los productos JUNTO con su stock de la sucursal actual
+        // Extraemos los productos y su estado 'activo'
         const { data: inv } = await supabase
             .from('inventario')
-            .select('stock, productos(id, codigo_barras, nombre)')
+            .select('stock, productos(id, codigo_barras, nombre, activo)')
             .eq('sucursal_id', sucursalId);
             
         if (inv) {
-            const prodsConStock = inv.map(i => ({
-                ...i.productos,
-                stock: i.stock
-            }));
+            // FILTRAMOS SOLO LOS ACTIVOS antes de guardarlos en el catálogo del médico
+            const prodsConStock = inv
+                .filter(i => i.productos && i.productos.activo !== false)
+                .map(i => ({
+                    ...i.productos,
+                    stock: i.stock
+                }));
             setProductosDB(prodsConStock);
         }
     };

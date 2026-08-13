@@ -176,7 +176,17 @@ export default function Inventario({ branch = 'napoles' }) {
     const eliminarArticulo = async (producto_id) => {
         if (!window.confirm(t('confirmarEliminarProducto'))) return;
         
-        const { error } = await supabase.from('productos').update({ activo: false }).eq('id', producto_id);
+        // BORRADO LÓGICO Y LIBERACIÓN DE CÓDIGO
+        // Le ponemos un código basura único para liberar el código de barras original
+        const codigoLiberado = `ELIMINADO-${Date.now()}`;
+
+        const { error } = await supabase.from('productos')
+            .update({ 
+                activo: false,
+                codigo_barras: codigoLiberado
+            })
+            .eq('id', producto_id);
+
         if (error) alert(`Error: ${error.message}`);
         else {
             alert(t('productoEliminadoExito'));
