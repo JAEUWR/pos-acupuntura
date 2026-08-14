@@ -19,6 +19,9 @@ const translations = {
         guardarSeleccionar: "Guardar y Seleccionar", cancelar: "Cancelar", 
         placeholderEscanear: "[Listo para escanear] Pasa el código de barras por el lector...", procesando: "PROCESANDO...", 
         carritoVacio: "Carrito vacío.", cobradoExito: "¡Cobrado con éxito en", general: "General", mayoreo: "Mayoreo", distribuidor: "Distribuidor", precioMedico: "Precio Médico",
+        folioTransferencia: "Folio de Transferencia", ingresaFolio: "Ej. 987654321", debito: "Débito", credito: "Crédito", 
+        tipoTarjeta: "Tipo de Tarjeta", historialDia: "Historial de Ventas del Día", vendedor: "Vendedor", hora: "Hora", 
+        articulos: "Artículos", folioRequerido: "Debes ingresar el folio de la transferencia.",
         // Módulo Inventario
         catalogo: "Catálogo", familiasGrupos: "Familias / Grupos", kardex: "Kardex", nuevoProducto: "Nuevo Artículo", 
         familia: "Familia", stock: "Stock", ajustar: "Ajustar", suelto: "Suelto", familiasAgrupaciones: "Familias y Agrupaciones", 
@@ -112,6 +115,9 @@ const translations = {
         guardarSeleccionar: "Save & Select", cancelar: "Cancel", 
         placeholderEscanear: "[Ready to scan] Swipe barcode...", procesando: "PROCESSING...", 
         carritoVacio: "Empty cart.", cobradoExito: "Successfully charged in", general: "General", mayoreo: "Wholesale", distribuidor: "Distributor", precioMedico: "Medical Price",
+        folioTransferencia: "Transfer Ref No.", ingresaFolio: "E.g. 987654321", debito: "Debit", credito: "Credit", 
+        tipoTarjeta: "Card Type", historialDia: "Today's Sales History", vendedor: "Cashier", hora: "Time", 
+        articulos: "Items", folioRequerido: "You must enter the transfer reference number.",
         // Módulo Inventario
         catalogo: "Catalog", familiasGrupos: "Families / Groups", kardex: "Kardex", nuevoProducto: "New Item", 
         familia: "Family", stock: "Stock", ajustar: "Adjust", suelto: "Single", familiasAgrupaciones: "Families & Groups", 
@@ -205,6 +211,9 @@ const translations = {
         guardarSeleccionar: "保存并选择", cancelar: "取消", 
         placeholderEscanear: "[准备扫描] 刷条形码...", procesando: "处理中...", 
         carritoVacio: "购物车为空。", cobradoExito: "收费成功:", general: "常规", mayoreo: "批发", distribuidor: "经销商", precioMedico: "医疗价格",
+        folioTransferencia: "转账参考号", ingresaFolio: "例: 987654321", debito: "借记卡", credito: "信用卡", 
+        tipoTarjeta: "卡类型", historialDia: "今日销售记录", vendedor: "收银员", hora: "时间", 
+        articulos: "物品", folioRequerido: "必须输入转账参考号。",
         // Módulo Inventario
         catalogo: "目录", familiasGrupos: "系列 / 分组", kardex: "出入库记录 (Kardex)", nuevoProducto: "新物品", 
         familia: "系列", stock: "库存量", ajustar: "调整", suelto: "单个", familiasAgrupaciones: "系列和分组", 

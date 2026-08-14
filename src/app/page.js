@@ -71,7 +71,7 @@ export default function Home() {
                     <Header branch={branch} setBranch={setBranch} perfil={perfil} />
                     
                     <div style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
-                        {activeView === 'ventas' && <Ventas branch={branch} />}
+                        {activeView === 'ventas' && <Ventas branch={branch} perfilActual={perfil} />}
                         {activeView === 'caja' && <Caja branch={branch} />}
                         {activeView === 'doctores' && <ConsumosMedicos branch={branch} />}
                         {activeView === 'inventario' && <Inventario branch={branch} />}

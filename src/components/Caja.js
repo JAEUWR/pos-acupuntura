@@ -8,6 +8,9 @@ export default function Caja({ branch = 'napoles' }) {
     const [saldo, setSaldo] = useState(0);
     const [movimientos, setMovimientos] = useState([]);
     
+    // NUEVO ESTADO: Historial Global de Movimientos
+    const [historialGlobal, setHistorialGlobal] = useState([]);
+    
     // Estados para Movimiento Manual
     const [showModal, setShowModal] = useState(false);
     const [tipoMovimiento, setTipoMovimiento] = useState('ingreso'); // 'ingreso' | 'retiro'
@@ -30,6 +33,14 @@ export default function Caja({ branch = 'napoles' }) {
             .gte('fecha', `${hoy}T00:00:00`)
             .order('fecha', { ascending: false });
         if (movs) setMovimientos(movs);
+
+        // 3. NUEVO: Obtener el historial global (Todos los tiempos) de esta sucursal (Limitado a 500 para rendimiento)
+        const { data: histGlobal } = await supabase.from('movimientos_caja')
+            .select('*')
+            .eq('sucursal_id', sucursalId)
+            .order('fecha', { ascending: false })
+            .limit(500);
+        if (histGlobal) setHistorialGlobal(histGlobal);
     };
 
     useEffect(() => { fetchCaja(); }, [branch]);
@@ -87,7 +98,7 @@ export default function Caja({ branch = 'napoles' }) {
     };
 
     return (
-        <div className="view-section active" style={{flexDirection: 'column', gap: '20px'}}>
+        <div className="view-section active" style={{flexDirection: 'column', gap: '20px', overflowY: 'auto'}}>
             
             <div style={{display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px'}}>
                 {/* PANEL IZQUIERDO: SALDO Y ACCIONES */}
@@ -110,14 +121,14 @@ export default function Caja({ branch = 'napoles' }) {
                 {/* PANEL DERECHO: HISTORIAL DEL DÍA */}
                 <div className="panel" style={{background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '25px', display: 'flex', flexDirection: 'column'}}>
                     <h2 style={{marginBottom: '15px'}}><i className="fa-solid fa-list-check" style={{color: 'var(--accent)'}}></i> {t('movimientosHoy')}</h2>
-                    <div style={{flex: 1, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '6px'}}>
+                    <div style={{flex: 1, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '6px', maxHeight: '350px'}}>
                         <table className="data-table">
                             <thead style={{position: 'sticky', top: 0, background: 'var(--bg-dark)'}}>
                                 <tr><th>{t('fechaHora')}</th><th>{t('tipoMovimiento')}</th><th>{t('motivo')}</th><th style={{textAlign:'right'}}>{t('importe')}</th></tr>
                             </thead>
                             <tbody>
                                 {movimientos.map(mov => (
-                                    <tr key={mov.id}>
+                                    <tr key={`hoy-${mov.id}`}>
                                         <td style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>{new Date(mov.fecha).toLocaleTimeString()}</td>
                                         <td>{getEtiqueta(mov.tipo)}</td>
                                         <td>{mov.motivo}</td>
@@ -130,6 +141,36 @@ export default function Caja({ branch = 'napoles' }) {
                             </tbody>
                         </table>
                     </div>
+                </div>
+            </div>
+
+            {/* NUEVO PANEL: HISTORIAL GLOBAL DE CAJA (TODOS LOS TIEMPOS) */}
+            <div className="panel" style={{background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '25px'}}>
+                <h2 style={{marginBottom: '15px', color: 'white'}}><i className="fa-solid fa-clock-rotate-left" style={{color: 'var(--text-muted)'}}></i> Historial Global de Movimientos</h2>
+                <div style={{overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '6px', maxHeight: '400px'}}>
+                    <table className="data-table">
+                        <thead style={{position: 'sticky', top: 0, background: 'var(--bg-dark)'}}>
+                            <tr>
+                                <th>Fecha Completa</th>
+                                <th>{t('tipoMovimiento')}</th>
+                                <th>{t('motivo')}</th>
+                                <th style={{textAlign:'right'}}>{t('importe')}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {historialGlobal.map(mov => (
+                                <tr key={`glob-${mov.id}`}>
+                                    <td style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>{new Date(mov.fecha).toLocaleString()}</td>
+                                    <td>{getEtiqueta(mov.tipo)}</td>
+                                    <td>{mov.motivo}</td>
+                                    <td style={{textAlign: 'right', fontWeight: 'bold', color: mov.monto > 0 ? 'var(--success)' : 'var(--primary-red)'}}>
+                                        {mov.monto > 0 ? '+' : ''}{parseFloat(mov.monto).toFixed(2)}
+                                    </td>
+                                </tr>
+                            ))}
+                            {historialGlobal.length === 0 && <tr><td colSpan="4" style={{textAlign: 'center', padding: '20px', color: 'var(--text-muted)'}}>{t('sinDatos')}</td></tr>}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
