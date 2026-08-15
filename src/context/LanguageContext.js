@@ -96,7 +96,17 @@ const translations = {
         movimientosHoy: "Movimientos de Hoy", tipoMovimiento: "Tipo", ingresoManual: "Ingreso Manual",
         retiroManual: "Retiro Manual", ventaEfectivo: "Venta (Efectivo)", corteDeCaja: "Corte de Caja",
         motivo: "Motivo / Concepto", confirmarCorte: "¿Estás seguro de hacer el corte? Se retirará todo el efectivo y la caja quedará en $0.00",
-        corteExitoso: "Corte de caja realizado exitosamente. Guarda el dinero."
+        corteExitoso: "Corte de caja realizado exitosamente. Guarda el dinero.",
+        // Módulo Clientes y Expedientes
+        directorioExpedientes: "Expedientes Clínicos (Admisión)", placeholderBuscarCliente: "🔍 Buscar por nombre, teléfono, CURP o expediente...", 
+        nuevoPaciente: "Nuevo Paciente", expediente: "Expediente", datosGenerales: "Datos Personales",
+        sexo: "Sexo", curp: "CURP", sinCurp: "Motivo sin CURP", fechaNacimiento: "Fecha de Nacimiento",
+        correo: "Correo Electrónico", domicilio: "Domicilio Completo", contactoEmergencia: "Contacto de Emergencia",
+        parentesco: "Parentesco", responsableLegal: "Responsable Legal (Si aplica)", idioma: "Idioma Preferente",
+        alertasClinicas: "Alertas Clínicas", tipoAlerta: "Tipo de Alerta", descripcionAlerta: "Descripción", gravedad: "Gravedad",
+        alergia: "Alergia", embarazo: "Embarazo", marcapasos: "Marcapasos/Implante", anticoagulantes: "Anticoagulantes",
+        enfermedadTransmisible: "Enfermedad Transmisible", riesgoUrgencia: "Riesgo/Urgencia",
+        altaPacienteExito: "Expediente creado exitosamente.", camposObligatorios: "Faltan campos obligatorios."
     },
     en: {
         // Generales y Sidebar
@@ -192,7 +202,17 @@ const translations = {
         movimientosHoy: "Today's Movements", tipoMovimiento: "Type", ingresoManual: "Manual In",
         retiroManual: "Manual Out", ventaEfectivo: "Sale (Cash)", corteDeCaja: "Register Cut",
         motivo: "Reason / Concept", confirmarCorte: "Are you sure you want to close the register? All cash will be withdrawn and set to $0.00",
-        corteExitoso: "Register successfully closed. Please secure the cash."
+        corteExitoso: "Register successfully closed. Please secure the cash.",
+        // Módulo Clientes y Expedientes
+        directorioExpedientes: "Clinical Records (Admission)", placeholderBuscarCliente: "🔍 Search by name, phone, CURP or record ID...", 
+        nuevoPaciente: "New Patient", expediente: "Record ID", datosGenerales: "Personal Data",
+        sexo: "Sex", curp: "CURP", sinCurp: "Reason no CURP", fechaNacimiento: "Date of Birth",
+        correo: "Email", domicilio: "Full Address", contactoEmergencia: "Emergency Contact",
+        parentesco: "Relationship", responsableLegal: "Legal Guardian (If applies)", idioma: "Preferred Language",
+        alertasClinicas: "Clinical Alerts", tipoAlerta: "Alert Type", descripcionAlerta: "Description", gravedad: "Severity",
+        alergia: "Allergy", embarazo: "Pregnancy", marcapasos: "Pacemaker/Implant", anticoagulantes: "Anticoagulants",
+        enfermedadTransmisible: "Transmissible Disease", riesgoUrgencia: "Risk/Emergency",
+        altaPacienteExito: "Record successfully created.", camposObligatorios: "Missing required fields."
     },
     zh: {
         // Generales y Sidebar
@@ -288,7 +308,17 @@ const translations = {
         movimientosHoy: "今日流水", tipoMovimiento: "类型", ingresoManual: "手动存入",
         retiroManual: "手动提取", ventaEfectivo: "销售 (现金)", corteDeCaja: "收银结算",
         motivo: "原因 / 备注", confirmarCorte: "您确定要结算吗？所有现金将被提取，余额将归零 ($0.00)",
-        corteExitoso: "收银结算成功，请妥善保管现金。"
+        corteExitoso: "收银结算成功，请妥善保管现金。",
+        // Módulo Clientes y Expedientes
+        directorioExpedientes: "临床档案 (入院)", placeholderBuscarCliente: "🔍 按姓名、电话、CURP或档案号搜索...", 
+        nuevoPaciente: "新患者", expediente: "档案号", datosGenerales: "个人资料",
+        sexo: "性别", curp: "CURP (身份证)", sinCurp: "无CURP原因", fechaNacimiento: "出生日期",
+        correo: "电子邮件", domicilio: "详细地址", contactoEmergencia: "紧急联系人",
+        parentesco: "关系", responsableLegal: "法定监护人 (如适用)", idioma: "首选语言",
+        alertasClinicas: "临床警告", tipoAlerta: "警告类型", descripcionAlerta: "描述", gravedad: "严重程度",
+        alergia: "过敏", embarazo: "怀孕", marcapasos: "起搏器/植入物", anticoagulantes: "抗凝剂",
+        enfermedadTransmisible: "传染病", riesgoUrgencia: "风险/紧急情况",
+        altaPacienteExito: "档案创建成功。", camposObligatorios: "缺少必填字段。"
     }
 };
 
