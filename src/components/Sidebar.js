@@ -90,6 +90,11 @@ export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
                         <i className="fa-solid fa-users" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('clientes')}
                     </button>
                 )}
+                {hasAccess('escritorioMedico') && (
+                    <button style={getBtnStyle('escritorioMedico')} onClick={() => setActiveView('escritorioMedico')}>
+                        <i className="fa-solid fa-stethoscope" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('escritorioMedico')}
+                    </button>
+                )}
                 {hasAccess('configuracion') && (
                     <button style={getBtnStyle('configuracion')} onClick={() => setActiveView('configuracion')}>
                         <i className="fa-solid fa-gear" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('configuracion')}

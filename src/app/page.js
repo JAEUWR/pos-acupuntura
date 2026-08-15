@@ -13,6 +13,7 @@ import Reportes from '../components/Reportes';
 import Clientes from '../components/Clientes';
 import Configuracion from '../components/Configuracion';
 import Caja from '../components/Caja';
+import EscritorioMedico from '../components/EscritorioMedico';
 
 // IMPORTAMOS EL PROVEEDOR DE IDIOMAS
 import { LanguageProvider } from '../context/LanguageContext';
@@ -78,6 +79,7 @@ export default function Home() {
                         {activeView === 'promociones' && <Promociones />}
                         {activeView === 'reportes' && <Reportes branch={branch} perfilActual={perfil} />}
                         {activeView === 'clientes' && <Clientes />}
+                        {activeView === 'escritorioMedico' && <EscritorioMedico branch={branch} perfilActual={perfil} />}
                         {activeView === 'configuracion' && <Configuracion perfilActual={perfil} />}
                     </div>
                 </div>

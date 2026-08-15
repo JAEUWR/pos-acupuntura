@@ -26,6 +26,7 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
     const [emergenciaTelefono, setEmergenciaTelefono] = useState('');
     const [idioma, setIdioma] = useState('Español');
     const [responsable, setResponsable] = useState('');
+    const [avisoPrivacidad, setAvisoPrivacidad] = useState(false); // NUEVO ESTADO DE PRIVACIDAD
 
     // Estados del Formulario (Alertas Clínicas)
     const [alertas, setAlertas] = useState([]); // Array de objetos {tipo, descripcion, gravedad}
@@ -56,6 +57,7 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
         setPacienteEditando(null); setNombre(''); setTelefono(''); setFechaNac(''); setSexo('');
         setCurp(''); setMotivoSinCurp(''); setCorreo(''); setDomicilio(''); setEmergenciaNombre('');
         setEmergenciaParentesco(''); setEmergenciaTelefono(''); setIdioma('Español'); setResponsable('');
+        setAvisoPrivacidad(false);
         setAlertas([]); setNewAlertaTipo(''); setNewAlertaDesc('');
     };
 
@@ -75,6 +77,7 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
             setEmergenciaTelefono(paciente.contacto_emergencia_telefono || '');
             setIdioma(paciente.idioma_preferente || 'Español');
             setResponsable(paciente.responsable_legal || '');
+            setAvisoPrivacidad(paciente.aviso_privacidad_aceptado || false); // Recordar el check legal
             
             // Cargar alertas existentes (solo activas para visualización en form)
             setAlertas(paciente.alertas_clinicas?.filter(a => a.activa) || []);
@@ -100,6 +103,7 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
 
     const guardarExpediente = async () => {
         if (!nombre || !telefono || !sexo || !fechaNac) return alert(t('camposObligatorios') + ' (Nombre, Tel, Sexo, Fecha Nac.)');
+        if (!avisoPrivacidad) return alert(t('aceptarAviso'));
 
         // VALIDACIÓN ANTIDUPLICADOS BÁSICA (Por teléfono o CURP)
         if (!pacienteEditando) {
@@ -113,9 +117,13 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
             nombre: nombre.trim(), telefono: telefono.trim(), fecha_nacimiento: fechaNac, sexo,
             curp: curp.trim(), motivo_sin_curp: motivoSinCurp.trim(), correo: correo.trim(), domicilio: domicilio.trim(),
             contacto_emergencia_nombre: emergenciaNombre.trim(), contacto_emergencia_parentesco: emergenciaParentesco.trim(),
-            contacto_emergencia_telefono: emergenciaTelefono.trim(), idioma_preferente: idioma, responsable_legal: responsable.trim()
+            contacto_emergencia_telefono: emergenciaTelefono.trim(), idioma_preferente: idioma, responsable_legal: responsable.trim(),
+            // CAMPOS DE PRIVACIDAD
+            aviso_privacidad_aceptado: avisoPrivacidad,
+            aviso_privacidad_version: 'v1.0',
+            aviso_privacidad_fecha: avisoPrivacidad && !pacienteEditando ? new Date().toISOString() : undefined // Solo graba la fecha si es nuevo y aceptó
         };
-
+        
         let currentPacienteId = pacienteEditando;
 
         // 1. Guardar Datos Generales
@@ -129,7 +137,7 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
             currentPacienteId = data[0].id;
         }
 
-        // 2. Gestionar Alertas Clínicas (Para simplificar, borramos las actuales y reescribimos las que quedaron en el array visual)
+        // 2. Gestionar Alertas Clínicas (Borramos actuales y reescribimos las que quedaron en el array visual)
         if (pacienteEditando) {
             await supabase.from('alertas_clinicas').delete().eq('paciente_id', currentPacienteId);
         }
@@ -279,6 +287,12 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
                         </div>
 
                         <div><label className="form-label">{t('responsableLegal')}</label><input type="text" value={responsable} onChange={e => setResponsable(e.target.value)} className="form-input" placeholder="Llenar solo si es menor de edad o persona que no puede consentir" /></div>
+                    
+                        {/* CASILLA ROJA OBLIGATORIA AVISO DE PRIVACIDAD */}
+                        <label style={{display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: 'rgba(198, 40, 40, 0.1)', padding: '15px', borderRadius: '8px', border: '1px dashed var(--primary-red)', marginTop: '25px'}}>
+                            <input type="checkbox" checked={avisoPrivacidad} onChange={e => setAvisoPrivacidad(e.target.checked)} style={{width: '20px', height: '20px'}} />
+                            <span style={{color: 'white', fontWeight: 'bold'}}>{t('avisoPrivacidad')} *</span>
+                        </label>
                     </div>
 
                     {/* COLUMNA DERECHA: ALERTAS CLÍNICAS Y GUARDADO */}
