@@ -42,14 +42,12 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
             )
         `).order('fecha', { ascending: false });
 
-        // Filtro de Fechas DB
         if (dateMode === 'diario') {
             query = query.gte('fecha', `${singleDate}T00:00:00`).lte('fecha', `${singleDate}T23:59:59`);
         } else {
             query = query.gte('fecha', `${startDate}T00:00:00`).lte('fecha', `${endDate}T23:59:59`);
         }
 
-        // Filtro de Sucursal DB
         if (viewMode === 'sucursal') {
             query = query.eq('sucursal_id', sucursalId);
         }
@@ -80,24 +78,16 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
                 const barcode = det.productos?.codigo_barras;
 
                 const registro = {
-                    folio: v.id,
-                    fecha: new Date(v.fecha).toLocaleString(),
-                    sucursal: sucursalNombre,
-                    cliente: clienteNombre,
-                    articulo: nombreItem,
-                    cantidad: cant,
-                    precio: precio,
-                    importe: importeDetalle,
-                    metodo_pago: pago
+                    folio: v.id, fecha: new Date(v.fecha).toLocaleString(),
+                    sucursal: sucursalNombre, cliente: clienteNombre,
+                    articulo: nombreItem, cantidad: cant, precio: precio,
+                    importe: importeDetalle, metodo_pago: pago
                 };
 
-                // Clasificación estricta (Empresa A vs Empresa B)
                 if (barcode === '7502314482150' || det.productos?.tipo === 'servicio' || nombreItem.toLowerCase().includes('consulta')) {
-                    totalA += importeDetalle;
-                    arrConsultas.push(registro);
+                    totalA += importeDetalle; arrConsultas.push(registro);
                 } else {
-                    totalB += importeDetalle;
-                    arrProductos.push(registro);
+                    totalB += importeDetalle; arrProductos.push(registro);
                 }
             });
         });
@@ -110,7 +100,6 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
 
     useEffect(() => { calculateDashboardData(); }, [dateMode, singleDate, startDate, endDate, viewMode, branch]);
 
-    // MOTOR DE FILTRADO EXCEL
     const applyFilters = (list, filters) => {
         return list.filter(item => {
             return Object.keys(filters).every(key => {
@@ -118,7 +107,6 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
                 const filterValue = String(filters[key]).toLowerCase();
                 let itemValue = String(item[key] || '').toLowerCase();
                 
-                // Formato especial para que el string coincida al buscar
                 if (key === 'folio') itemValue = `#${item.folio.toString().padStart(5, '0')}`.toLowerCase();
                 if (key === 'importe') itemValue = `$${item.importe.toFixed(2)}`.toLowerCase();
                 
@@ -130,12 +118,34 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
     const consultasFiltradas = applyFilters(listaConsultas, filtersA);
     const productosFiltrados = applyFilters(listaProductos, filtersB);
 
-    // TOTALES DINÁMICOS
-    const totalFiltradoA = consultasFiltradas.reduce((acc, el) => acc + el.importe, 0);
-    const totalFiltradoB = productosFiltrados.reduce((acc, el) => acc + el.importe, 0);
-    const granTotalFiltrado = totalFiltradoA + totalFiltradoB;
+    const clasificarPago = (metodoString) => {
+        const str = metodoString.toLowerCase();
+        if (str.includes('efectivo') || str.includes('cash') || str.includes('现金')) return 'efectivo';
+        if (str.includes('tarjeta') || str.includes('card') || str.includes('刷卡')) return 'tarjeta';
+        if (str.includes('transferencia') || str.includes('folio') || str.includes('transfer') || str.includes('转账')) return 'transferencia';
+        return 'otros';
+    };
 
-    // EXPORTACIÓN A EXCEL
+    const desglosar = (lista) => {
+        const desglose = { total: 0, efectivo: 0, tarjeta: 0, transferencia: 0, otros: 0 };
+        lista.forEach(item => {
+            desglose.total += item.importe;
+            desglose[clasificarPago(item.metodo_pago)] += item.importe;
+        });
+        return desglose;
+    };
+
+    const breakdownA = desglosar(consultasFiltradas);
+    const breakdownB = desglosar(productosFiltrados);
+    
+    const breakdownTotal = {
+        total: breakdownA.total + breakdownB.total,
+        efectivo: breakdownA.efectivo + breakdownB.efectivo,
+        tarjeta: breakdownA.tarjeta + breakdownB.tarjeta,
+        transferencia: breakdownA.transferencia + breakdownB.transferencia,
+        otros: breakdownA.otros + breakdownB.otros,
+    };
+
     const exportToExcel = () => {
         if (consultasFiltradas.length === 0 && productosFiltrados.length === 0) return alert(t('noDatosExportar'));
 
@@ -146,14 +156,26 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
         consultasFiltradas.forEach(c => {
             csvString += `"#${c.folio.toString().padStart(5, '0')}","${c.fecha}","${c.sucursal}","${c.cliente}","${c.articulo}",${c.cantidad},${c.importe.toFixed(2)},"${c.metodo_pago.toUpperCase()}"\n`;
         });
-        csvString += `,,,,,,Total Consultas:,${totalFiltradoA.toFixed(2)}\n\n\n`;
+        csvString += `,,,,,,${t('totalConsultas')},${breakdownA.total.toFixed(2)}\n`;
+        csvString += `,,,,,,${t('excelEfectivo')},${breakdownA.efectivo.toFixed(2)}\n`;
+        csvString += `,,,,,,${t('excelTarjetas')},${breakdownA.tarjeta.toFixed(2)}\n`;
+        csvString += `,,,,,,${t('excelTransferencias')},${breakdownA.transferencia.toFixed(2)}\n\n\n`;
 
         csvString += `--- ${t('empresaB').toUpperCase()} ---\n`;
         csvString += `${t('folio')},${t('fechaHora')},${t('sucursalEmisora')},${t('clientes')},${t('articulo')},${t('cantidadAbrev')},${t('importe')},${t('metPago')}\n`;
         productosFiltrados.forEach(p => {
             csvString += `"#${p.folio.toString().padStart(5, '0')}","${p.fecha}","${p.sucursal}","${p.cliente}","${p.articulo}",${p.cantidad},${p.importe.toFixed(2)},"${p.metodo_pago.toUpperCase()}"\n`;
         });
-        csvString += `,,,,,,Total Productos:,${totalFiltradoB.toFixed(2)}\n`;
+        csvString += `,,,,,,${t('totalProductos')},${breakdownB.total.toFixed(2)}\n`;
+        csvString += `,,,,,,${t('excelEfectivo')},${breakdownB.efectivo.toFixed(2)}\n`;
+        csvString += `,,,,,,${t('excelTarjetas')},${breakdownB.tarjeta.toFixed(2)}\n`;
+        csvString += `,,,,,,${t('excelTransferencias')},${breakdownB.transferencia.toFixed(2)}\n\n\n`;
+
+        csvString += `--- ${t('resumenGlobal')} ---\n`;
+        csvString += `${t('granTotalLabel')},${breakdownTotal.total.toFixed(2)}\n`;
+        csvString += `${t('totalEfectivo')},${breakdownTotal.efectivo.toFixed(2)}\n`;
+        csvString += `${t('totalTarjetas')},${breakdownTotal.tarjeta.toFixed(2)}\n`;
+        csvString += `${t('totalTransferencias')},${breakdownTotal.transferencia.toFixed(2)}\n`;
 
         const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
@@ -164,7 +186,6 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
 
     const triggerPDFPrint = () => { window.print(); };
 
-    // COMPONENTE HEADER CON FILTRO EXCEL
     const getUniqueValues = (list, column) => {
         const vals = list.map(item => {
             if (column === 'folio') return `#${item.folio.toString().padStart(5, '0')}`;
@@ -184,33 +205,31 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
         const currentValue = filters[column];
 
         return (
-            <th style={{ position: 'relative', padding: '10px', userSelect: 'none' }}>
+            <th style={{ position: 'relative', padding: '15px', userSelect: 'none', transition: 'all 0.3s ease' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => setActiveDropdown(isActive ? null : column)}>
-                    <span>{title}</span>
-                    <i className="fa-solid fa-chevron-down" style={{ fontSize: '0.7rem', color: hasFilter ? 'var(--primary-red)' : 'var(--text-muted)', transition: 'transform 0.2s', transform: isActive ? 'rotate(180deg)' : 'rotate(0)' }}></i>
+                    <span style={{ color: hasFilter ? 'var(--accent)' : 'var(--text-muted)', fontWeight: hasFilter ? 'bold' : '600' }}>{title}</span>
+                    <i className="fa-solid fa-chevron-down" style={{ fontSize: '0.7rem', color: hasFilter ? 'var(--accent)' : 'var(--text-muted)', transition: 'transform 0.3s ease', transform: isActive ? 'rotate(180deg)' : 'rotate(0)' }}></i>
                 </div>
                 
                 {isActive && (
                     <>
                         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }} onClick={() => setActiveDropdown(null)}></div>
                         
-                        <div style={{ position: 'absolute', top: '100%', left: 0, background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px', zIndex: 11, width: '220px', boxShadow: '0 8px 16px rgba(0,0,0,0.5)', marginTop: '5px' }} onClick={e => e.stopPropagation()}>
+                        <div className="filter-popover" style={{ position: 'absolute', top: '100%', left: 0, background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '12px', zIndex: 11, width: '220px', boxShadow: 'var(--shadow-lg)', marginTop: '8px' }} onClick={e => e.stopPropagation()}>
                             <input 
-                                type="text" 
-                                placeholder="🔍 Buscar..." 
-                                value={currentValue}
+                                type="text" placeholder="🔍 Buscar..." value={currentValue}
                                 onChange={(e) => setFilters(prev => ({...prev, [column]: e.target.value}))}
-                                style={{ width: '100%', padding: '8px', background: 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', marginBottom: '10px', fontSize: '0.85rem' }}
+                                style={{ width: '100%', padding: '10px', background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '6px', marginBottom: '10px', fontSize: '0.85rem' }}
                                 autoFocus
                             />
                             
                             <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px', paddingRight: '5px' }}>
                                 {uniqueValues.filter(v => v.toLowerCase().includes(currentValue.toLowerCase())).map((val, idx) => (
                                     <div key={idx} 
-                                         style={{ fontSize: '0.8rem', padding: '6px 8px', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-muted)', fontWeight: 'normal', textTransform: 'none' }}
+                                         style={{ fontSize: '0.85rem', padding: '8px 10px', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-main)', transition: 'all 0.2s' }}
                                          onClick={() => { setFilters(prev => ({...prev, [column]: val})); setActiveDropdown(null); }}
-                                         onMouseEnter={(e) => { e.currentTarget.style.color = 'white'; e.currentTarget.style.background = 'var(--bg-lighter)'; }}
-                                         onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                                         onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'var(--bg-dark)'; }}
+                                         onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-main)'; e.currentTarget.style.background = 'transparent'; }}
                                     >
                                         {val}
                                     </div>
@@ -220,7 +239,9 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
                             {hasFilter && (
                                 <button 
                                     onClick={() => { setFilters(prev => ({...prev, [column]: ''})); setActiveDropdown(null); }} 
-                                    style={{ width: '100%', marginTop: '10px', padding: '8px', background: 'rgba(198, 40, 40, 0.1)', border: '1px solid var(--primary-red)', color: 'var(--primary-red)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}
+                                    style={{ width: '100%', marginTop: '10px', padding: '10px', background: 'rgba(211, 47, 47, 0.1)', border: '1px solid var(--primary-red)', color: 'var(--primary-red)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold', transition: 'all 0.2s' }}
+                                    onMouseEnter={e => e.currentTarget.style.background = 'var(--primary-red)'}
+                                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(211, 47, 47, 0.1)'}
                                 >
                                     Borrar Filtro
                                 </button>
@@ -233,84 +254,127 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
     };
 
     return (
-        <div className="view-section active" style={{flexDirection: 'column', gap: '20px', overflowY: 'auto', paddingRight: '5px'}}>
+        <div className="view-section active" style={{flexDirection: 'column', gap: '25px', overflowY: 'auto', paddingRight: '5px'}}>
             
             {/* PANEL DE CONTROL SUPERIOR */}
-            <div style={{display: 'flex', flexDirection: 'column', gap: '15px', background: 'var(--bg-panel)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)'}}>
-                
-                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed var(--border-color)', paddingBottom: '15px'}}>
+            <div className="panel" style={{display: 'flex', flexDirection: 'column', gap: '20px', padding: '25px'}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed var(--border-color)', paddingBottom: '20px'}}>
                     <div style={{display: 'flex', gap: '10px'}}>
-                        <button className={`btn-action ${dateMode === 'diario' ? 'btn-primary' : ''}`} onClick={() => setDateMode('diario')}><i className="fa-solid fa-calendar-day"></i> {t('reporteDiario')}</button>
-                        <button className={`btn-action ${dateMode === 'periodo' ? 'btn-primary' : ''}`} onClick={() => setDateMode('periodo')}><i className="fa-solid fa-calendar-week"></i> {t('reportePeriodo')}</button>
+                        <button className={`btn-action ${dateMode === 'diario' ? 'btn-primary' : ''}`} onClick={() => setDateMode('diario')} style={{padding: '10px 20px', borderRadius: '30px'}}><i className="fa-solid fa-calendar-day"></i> {t('reporteDiario')}</button>
+                        <button className={`btn-action ${dateMode === 'periodo' ? 'btn-primary' : ''}`} onClick={() => setDateMode('periodo')} style={{padding: '10px 20px', borderRadius: '30px'}}><i className="fa-solid fa-calendar-week"></i> {t('reportePeriodo')}</button>
                     </div>
 
                     <div style={{display: 'flex', gap: '10px'}}>
-                        <button className={`btn-action ${viewMode === 'sucursal' ? 'btn-primary' : ''}`} onClick={() => setViewMode('sucursal')}><i className="fa-solid fa-store"></i> {t('vistaSucursal')} ({branch.toUpperCase()})</button>
+                        <button className={`btn-action ${viewMode === 'sucursal' ? 'btn-primary' : ''}`} onClick={() => setViewMode('sucursal')} style={{padding: '10px 20px', borderRadius: '30px'}}><i className="fa-solid fa-store"></i> {t('vistaSucursal')} ({branch.toUpperCase()})</button>
                         {perfilActual?.rol === 'admin' && (
-                            <button className={`btn-action ${viewMode === 'global' ? 'btn-primary' : ''}`} onClick={() => setViewMode('global')}><i className="fa-solid fa-globe"></i> {t('vistaGlobal')}</button>
+                            <button className={`btn-action ${viewMode === 'global' ? 'btn-primary' : ''}`} onClick={() => setViewMode('global')} style={{padding: '10px 20px', borderRadius: '30px'}}><i className="fa-solid fa-globe"></i> {t('vistaGlobal')}</button>
                         )}
                     </div>
                 </div>
 
                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                    <div style={{display: 'flex', gap: '15px'}}>
+                    <div style={{display: 'flex', gap: '20px'}}>
                         {dateMode === 'diario' ? (
                             <div>
-                                <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px'}}>{t('fecha')}</label>
-                                <input type="date" value={singleDate} onChange={(e) => setSingleDate(e.target.value)} style={{padding: '10px', background: 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
+                                <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px', fontWeight: 'bold'}}>{t('fecha')}</label>
+                                <input type="date" value={singleDate} onChange={(e) => setSingleDate(e.target.value)} style={{padding: '12px', borderRadius: '8px'}} />
                             </div>
                         ) : (
                             <>
                                 <div>
-                                    <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px'}}>{t('fechaInicio')}</label>
-                                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{padding: '10px', background: 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
+                                    <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px', fontWeight: 'bold'}}>{t('fechaInicio')}</label>
+                                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{padding: '12px', borderRadius: '8px'}} />
                                 </div>
                                 <div>
-                                    <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px'}}>{t('fechaFin')}</label>
-                                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{padding: '10px', background: 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '6px'}} />
+                                    <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px', fontWeight: 'bold'}}>{t('fechaFin')}</label>
+                                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{padding: '12px', borderRadius: '8px'}} />
                                 </div>
                             </>
                         )}
                     </div>
                     
-                    <div style={{display: 'flex', gap: '10px'}}>
-                        <button className="btn-action" onClick={exportToExcel} style={{background: '#1e3d26', border: '1px solid #2e7d32'}}><i className="fa-solid fa-file-excel" style={{color: 'var(--success)', marginRight: '8px'}}></i> {t('excelCsv')}</button>
-                        <button className="btn-action" onClick={triggerPDFPrint} style={{background: '#3d1e1e', border: '1px solid var(--primary-red)'}}><i className="fa-solid fa-file-pdf" style={{color: 'var(--accent)', marginRight: '8px'}}></i> {t('imprimirPdf')}</button>
+                    <div style={{display: 'flex', gap: '15px'}}>
+                        <button className="btn-action" onClick={exportToExcel} style={{background: 'rgba(46, 125, 50, 0.1)', color: 'var(--success)', border: '1px solid var(--success)', padding: '12px 20px', borderRadius: '10px', fontWeight: 'bold'}}><i className="fa-solid fa-file-excel"></i> {t('excelCsv')}</button>
+                        <button className="btn-action" onClick={triggerPDFPrint} style={{background: 'rgba(211, 47, 47, 0.1)', color: 'var(--primary-red)', border: '1px solid var(--primary-red)', padding: '12px 20px', borderRadius: '10px', fontWeight: 'bold'}}><i className="fa-solid fa-file-pdf"></i> {t('imprimirPdf')}</button>
                     </div>
                 </div>
             </div>
 
             {loading ? (
-                <div style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin fa-2x"></i><p style={{marginTop:'10px'}}>{t('procesandoNube')}</p></div>
+                <div style={{textAlign: 'center', padding: '60px', color: 'var(--accent)'}}>
+                    <i className="fa-solid fa-circle-notch fa-spin fa-3x"></i>
+                    <p style={{marginTop:'15px', color: 'var(--text-muted)', fontWeight: 'bold'}}>{t('procesandoNube')}</p>
+                </div>
             ) : (
                 <>
-                    {/* TARJETAS FINANCIERAS (DINÁMICAS CON EL FILTRO) */}
-                    <div className="dashboard-grid" style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px'}}>
-                        <div className="dash-card" style={{background: 'var(--bg-panel)', padding: '20px', borderRadius: '12px', border: '1px solid #00b0ff', borderLeft: '5px solid #00b0ff'}}>
-                            <i className="fa-solid fa-user-doctor" style={{fontSize: '1.8rem', color: '#00b0ff'}}></i>
-                            <span style={{display:'block', color:'var(--text-muted)', fontSize:'0.85rem', marginTop:'10px'}}>{t('ingresosA')}</span>
-                            <span style={{fontSize: '2rem', fontWeight: 'bold', display:'block'}}>${totalFiltradoA.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                    {/* 🚀 TARJETAS FINANCIERAS PREMIUM */}
+                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '25px'}}>
+                        
+                        {/* EMPRESA A */}
+                        <div className="dash-card-premium" style={{ '--card-color': '#00b0ff' }}>
+                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+                                <div style={{width: '100%'}}>
+                                    <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px'}}>
+                                        <div style={{background: 'rgba(0, 176, 255, 0.1)', padding: '12px', borderRadius: '12px'}}><i className="fa-solid fa-user-doctor" style={{fontSize: '1.5rem', color: '#00b0ff'}}></i></div>
+                                        <span style={{color:'var(--text-muted)', fontSize:'0.85rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px'}}>{t('ingresosA')}</span>
+                                    </div>
+                                    <span style={{fontSize: '2.4rem', fontWeight: '900', display:'block', color: 'var(--text-main)'}}>${breakdownA.total.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                                </div>
+                            </div>
+                            <div className="breakdown-section">
+                                <div><span>{t('efectivoLabel')}</span> <strong>${breakdownA.efectivo.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
+                                <div><span>{t('tarjetaLabel')}</span> <strong>${breakdownA.tarjeta.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
+                                <div><span>{t('transferenciaLabel')}</span> <strong>${breakdownA.transferencia.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
+                            </div>
                         </div>
-                        <div className="dash-card" style={{background: 'var(--bg-panel)', padding: '20px', borderRadius: '12px', border: '1px solid #ffb300', borderLeft: '5px solid #ffb300'}}>
-                            <i className="fa-solid fa-box-open" style={{fontSize: '1.8rem', color: '#ffb300'}}></i>
-                            <span style={{display:'block', color:'var(--text-muted)', fontSize:'0.85rem', marginTop:'10px'}}>{t('ingresosB')}</span>
-                            <span style={{fontSize: '2rem', fontWeight: 'bold', display:'block'}}>${totalFiltradoB.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+
+                        {/* EMPRESA B */}
+                        <div className="dash-card-premium" style={{ '--card-color': '#ffb300' }}>
+                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+                                <div style={{width: '100%'}}>
+                                    <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px'}}>
+                                        <div style={{background: 'rgba(255, 179, 0, 0.1)', padding: '12px', borderRadius: '12px'}}><i className="fa-solid fa-box-open" style={{fontSize: '1.5rem', color: '#ffb300'}}></i></div>
+                                        <span style={{color:'var(--text-muted)', fontSize:'0.85rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px'}}>{t('ingresosB')}</span>
+                                    </div>
+                                    <span style={{fontSize: '2.4rem', fontWeight: '900', display:'block', color: 'var(--text-main)'}}>${breakdownB.total.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                                </div>
+                            </div>
+                            <div className="breakdown-section">
+                                <div><span>{t('efectivoLabel')}</span> <strong>${breakdownB.efectivo.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
+                                <div><span>{t('tarjetaLabel')}</span> <strong>${breakdownB.tarjeta.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
+                                <div><span>{t('transferenciaLabel')}</span> <strong>${breakdownB.transferencia.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
+                            </div>
                         </div>
-                        <div className="dash-card" style={{background: 'var(--bg-panel)', padding: '20px', borderRadius: '12px', border: '1px solid var(--success)', borderLeft: '5px solid var(--success)'}}>
-                            <i className="fa-solid fa-sack-dollar" style={{fontSize: '1.8rem', color: 'var(--success)'}}></i>
-                            <span style={{display:'block', color:'var(--text-muted)', fontSize:'0.85rem', marginTop:'10px'}}>{t('granTotal')}</span>
-                            <span style={{fontSize: '2rem', fontWeight: 'bold', display:'block'}}>${granTotalFiltrado.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+
+                        {/* GRAN TOTAL */}
+                        <div className="dash-card-premium" style={{ '--card-color': 'var(--success)' }}>
+                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+                                <div style={{width: '100%'}}>
+                                    <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px'}}>
+                                        <div style={{background: 'rgba(46, 125, 50, 0.1)', padding: '12px', borderRadius: '12px'}}><i className="fa-solid fa-sack-dollar" style={{fontSize: '1.5rem', color: 'var(--success)'}}></i></div>
+                                        <span style={{color:'var(--text-muted)', fontSize:'0.85rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px'}}>{t('granTotal')}</span>
+                                    </div>
+                                    <span style={{fontSize: '2.4rem', fontWeight: '900', display:'block', color: 'var(--success)'}}>${breakdownTotal.total.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                                </div>
+                            </div>
+                            <div className="breakdown-section">
+                                <div><span>{t('efectivoTotal')}</span> <strong style={{color: 'var(--text-main)'}}>${breakdownTotal.efectivo.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
+                                <div><span>{t('tarjetaTotal')}</span> <strong style={{color: 'var(--text-main)'}}>${breakdownTotal.tarjeta.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
+                                <div><span>{t('transfTotal')}</span> <strong style={{color: 'var(--text-main)'}}>${breakdownTotal.transferencia.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
+                            </div>
                         </div>
+
                     </div>
 
-                    {/* TABLA 1: CONSULTAS Y SERVICIOS */}
-                    <div className="panel" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden'}}>
-                        <div style={{padding: '20px', borderBottom: '1px solid var(--border-color)', background: '#00b0ff11'}}>
-                            <h2 style={{color: '#00b0ff', margin: 0}}><i className="fa-solid fa-notes-medical"></i> {t('empresaA')}</h2>
+                    {/* TABLAS ESTILIZADAS */}
+                    <div className="panel" style={{padding: '0', overflow: 'hidden'}}>
+                        <div style={{padding: '20px 25px', borderBottom: '1px solid var(--border-color)', background: 'rgba(0, 176, 255, 0.05)', display: 'flex', alignItems: 'center', gap: '10px'}}>
+                            <div style={{background: '#00b0ff', padding: '8px', borderRadius: '8px', color: 'white'}}><i className="fa-solid fa-notes-medical"></i></div>
+                            <h2 style={{color: '#00b0ff', margin: 0, fontSize: '1.2rem'}}>{t('empresaA')}</h2>
                         </div>
                         <div style={{maxHeight: '400px', overflowY: 'auto'}}>
                             <table className="data-table">
-                                <thead style={{position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-panel)'}}>
+                                <thead style={{position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-panel)', boxShadow: '0 2px 10px rgba(0,0,0,0.05)'}}>
                                     <tr>
                                         {renderColumnHeader(t('folio'), 'folio', listaConsultas, filtersA, setFiltersA, activeDropdownA, setActiveDropdownA)}
                                         {renderColumnHeader(t('fechaHora'), 'fecha', listaConsultas, filtersA, setFiltersA, activeDropdownA, setActiveDropdownA)}
@@ -326,29 +390,29 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
                                     {consultasFiltradas.map((item, idx) => (
                                         <tr key={`c-${idx}`}>
                                             <td style={{fontFamily: 'monospace', color: 'var(--text-muted)'}}>#{item.folio.toString().padStart(5, '0')}</td>
-                                            <td style={{fontSize: '0.85rem'}}>{item.fecha}</td>
-                                            {viewMode === 'global' && <td>{item.sucursal}</td>}
-                                            <td><strong>{item.cliente}</strong></td>
+                                            <td style={{fontSize: '0.85rem', color: 'var(--text-main)'}}>{item.fecha}</td>
+                                            {viewMode === 'global' && <td style={{color: 'var(--text-main)'}}>{item.sucursal}</td>}
+                                            <td><strong style={{color: 'var(--text-main)'}}>{item.cliente}</strong></td>
                                             <td style={{color: '#00b0ff'}}>{item.articulo}</td>
-                                            <td>{item.cantidad}</td>
-                                            <td><span style={{fontSize: '0.75rem', background: '#333', padding: '3px 6px', borderRadius: '4px'}}>{item.metodo_pago.toUpperCase()}</span></td>
-                                            <td style={{fontWeight: 'bold'}}>${item.importe.toFixed(2)}</td>
+                                            <td style={{color: 'var(--text-main)', fontWeight: 'bold'}}>{item.cantidad}</td>
+                                            <td><span style={{fontSize: '0.75rem', background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 10px', borderRadius: '20px', fontWeight: '600'}}>{item.metodo_pago.toUpperCase()}</span></td>
+                                            <td style={{fontWeight: 'bold', color: 'var(--text-main)'}}>${item.importe.toFixed(2)}</td>
                                         </tr>
                                     ))}
-                                    {consultasFiltradas.length === 0 && <tr><td colSpan={viewMode === 'global' ? 8 : 7} style={{textAlign: 'center', padding: '20px', color: 'var(--text-muted)'}}>{t('sinDatos')}</td></tr>}
+                                    {consultasFiltradas.length === 0 && <tr><td colSpan={viewMode === 'global' ? 8 : 7} style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-folder-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos')}</td></tr>}
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
-                    {/* TABLA 2: PRODUCTOS ADICIONALES */}
-                    <div className="panel" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden'}}>
-                        <div style={{padding: '20px', borderBottom: '1px solid var(--border-color)', background: '#ffb30011'}}>
-                            <h2 style={{color: '#ffb300', margin: 0}}><i className="fa-solid fa-box-open"></i> {t('empresaB')}</h2>
+                    <div className="panel" style={{padding: '0', overflow: 'hidden'}}>
+                        <div style={{padding: '20px 25px', borderBottom: '1px solid var(--border-color)', background: 'rgba(255, 179, 0, 0.05)', display: 'flex', alignItems: 'center', gap: '10px'}}>
+                            <div style={{background: '#ffb300', padding: '8px', borderRadius: '8px', color: 'white'}}><i className="fa-solid fa-box-open"></i></div>
+                            <h2 style={{color: '#ffb300', margin: 0, fontSize: '1.2rem'}}>{t('empresaB')}</h2>
                         </div>
                         <div style={{maxHeight: '400px', overflowY: 'auto'}}>
                             <table className="data-table">
-                                <thead style={{position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-panel)'}}>
+                                <thead style={{position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-panel)', boxShadow: '0 2px 10px rgba(0,0,0,0.05)'}}>
                                     <tr>
                                         {renderColumnHeader(t('folio'), 'folio', listaProductos, filtersB, setFiltersB, activeDropdownB, setActiveDropdownB)}
                                         {renderColumnHeader(t('fechaHora'), 'fecha', listaProductos, filtersB, setFiltersB, activeDropdownB, setActiveDropdownB)}
@@ -364,16 +428,16 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
                                     {productosFiltrados.map((item, idx) => (
                                         <tr key={`p-${idx}`}>
                                             <td style={{fontFamily: 'monospace', color: 'var(--text-muted)'}}>#{item.folio.toString().padStart(5, '0')}</td>
-                                            <td style={{fontSize: '0.85rem'}}>{item.fecha}</td>
-                                            {viewMode === 'global' && <td>{item.sucursal}</td>}
-                                            <td><strong>{item.cliente}</strong></td>
+                                            <td style={{fontSize: '0.85rem', color: 'var(--text-main)'}}>{item.fecha}</td>
+                                            {viewMode === 'global' && <td style={{color: 'var(--text-main)'}}>{item.sucursal}</td>}
+                                            <td><strong style={{color: 'var(--text-main)'}}>{item.cliente}</strong></td>
                                             <td style={{color: '#ffb300'}}>{item.articulo}</td>
-                                            <td>{item.cantidad}</td>
-                                            <td><span style={{fontSize: '0.75rem', background: '#333', padding: '3px 6px', borderRadius: '4px'}}>{item.metodo_pago.toUpperCase()}</span></td>
-                                            <td style={{fontWeight: 'bold'}}>${item.importe.toFixed(2)}</td>
+                                            <td style={{color: 'var(--text-main)', fontWeight: 'bold'}}>{item.cantidad}</td>
+                                            <td><span style={{fontSize: '0.75rem', background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 10px', borderRadius: '20px', fontWeight: '600'}}>{item.metodo_pago.toUpperCase()}</span></td>
+                                            <td style={{fontWeight: 'bold', color: 'var(--text-main)'}}>${item.importe.toFixed(2)}</td>
                                         </tr>
                                     ))}
-                                    {productosFiltrados.length === 0 && <tr><td colSpan={viewMode === 'global' ? 8 : 7} style={{textAlign: 'center', padding: '20px', color: 'var(--text-muted)'}}>{t('sinDatos')}</td></tr>}
+                                    {productosFiltrados.length === 0 && <tr><td colSpan={viewMode === 'global' ? 8 : 7} style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-folder-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos')}</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -381,6 +445,59 @@ export default function Reportes({ branch = 'napoles', perfilActual }) {
 
                 </>
             )}
+
+            {/* ESTILOS INTERNOS PREMIUM */}
+            <style jsx>{`
+                .dash-card-premium {
+                    background: var(--bg-panel);
+                    padding: 25px;
+                    border-radius: 16px;
+                    border: 1px solid var(--border-color);
+                    border-left: 6px solid var(--card-color);
+                    display: flex;
+                    flex-direction: column;
+                    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+                    box-shadow: var(--shadow-sm);
+                    position: relative;
+                    overflow: hidden;
+                }
+                .dash-card-premium::before {
+                    content: ''; position: absolute; top: 0; right: 0; width: 150px; height: 150px;
+                    background: radial-gradient(circle, var(--card-color) 0%, transparent 70%);
+                    opacity: 0.05; transition: opacity 0.4s ease; border-radius: 50%;
+                    transform: translate(30%, -30%); pointer-events: none;
+                }
+                .dash-card-premium:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 15px 30px -5px rgba(0,0,0,0.1), 0 0 20px 0 var(--card-color) inset;
+                    border-color: var(--card-color);
+                }
+                .dash-card-premium:hover::before { opacity: 0.15; }
+
+                .breakdown-section {
+                    margin-top: 20px;
+                    padding-top: 20px;
+                    border-top: 1px dashed var(--border-color);
+                    font-size: 0.85rem;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                }
+                .breakdown-section div {
+                    display: flex;
+                    justify-content: space-between;
+                    color: var(--text-muted);
+                }
+                
+                .filter-popover {
+                    animation: popoverFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                }
+
+                @keyframes popoverFadeIn {
+                    from { opacity: 0; transform: translateY(-10px) scale(0.95); }
+                    to { opacity: 1; transform: translateY(0) scale(1); }
+                }
+            `}</style>
         </div>
     );
 }
