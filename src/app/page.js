@@ -1,19 +1,24 @@
 'use client';
 import { useState, useEffect } from 'react';
+// IMPORTACIÓN DINÁMICA DE NEXT.JS
+import dynamic from 'next/dynamic'; 
 import { supabase } from '../lib/supabase';
 import Login from '../components/Login';
 
-import Ventas from '../components/Ventas';
-import ConsumosMedicos from '../components/ConsumosMedicos';
-import Inventario from '../components/Inventario';
-import Promociones from '../components/Promociones';
-import Reportes from '../components/Reportes';
-import Clientes from '../components/Clientes';
-import Configuracion from '../components/Configuracion';
-import Caja from '../components/Caja';
-import EscritorioMedico from '../components/EscritorioMedico';
-
+// Mantenemos static el LanguageContext y LanguageProvider porque suelen necesitar SSR para el idioma base.
 import { LanguageProvider, useLanguage } from '../context/LanguageContext';
+
+// 🚀 IMPORTAMOS TODOS LOS MÓDULOS DEL CLIENTE CON SSR DESACTIVADO
+// Esto previene fallos de hidratación causados por Date.now() o Math.random() en el servidor.
+const Ventas = dynamic(() => import('../components/Ventas'), { ssr: false });
+const ConsumosMedicos = dynamic(() => import('../components/ConsumosMedicos'), { ssr: false });
+const Inventario = dynamic(() => import('../components/Inventario'), { ssr: false });
+const Promociones = dynamic(() => import('../components/Promociones'), { ssr: false });
+const Reportes = dynamic(() => import('../components/Reportes'), { ssr: false });
+const Clientes = dynamic(() => import('../components/Clientes'), { ssr: false });
+const Configuracion = dynamic(() => import('../components/Configuracion'), { ssr: false });
+const Caja = dynamic(() => import('../components/Caja'), { ssr: false });
+const EscritorioMedico = dynamic(() => import('../components/EscritorioMedico'), { ssr: false });
 
 // COMPONENTE INTERNO DEL DASHBOARD
 function DashboardApp({ session, perfil, branch, setBranch }) {
@@ -28,7 +33,6 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
     };
     
     const [isDarkMode, setIsDarkMode] = useState(true);
-    const [mounted, setMounted] = useState(false);
     const [activeView, setActiveView] = useState('ventas');
     
     // ESTADO: Menú Deslizable
@@ -42,7 +46,6 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
     };
 
     useEffect(() => {
-        setMounted(true);
         document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
     }, [isDarkMode]);
 
@@ -50,12 +53,10 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
         await supabase.auth.signOut();
     };
 
-    if (!mounted) return null; 
-
     return (
-        <div suppressHydrationWarning className="app-container oriental-theme">
+        <div className="app-container oriental-theme">
             
-            {/* 🚀 SLIDEBAR (MENÚ LATERAL COLAPSABLE - LIMPIO DE MANCHAS) */}
+            {/* 🚀 SLIDEBAR (MENÚ LATERAL COLAPSABLE) */}
             <div className={`sidebar-premium ${isSidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
                 
                 {/* Botón Flotante para Colapsar/Expandir */}
@@ -83,7 +84,7 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                         <h2 className="logo-text">Acupuntura HK</h2>
                     </div>
 
-                    {/* TODOS TUS MÓDULOS */}
+                    {/* MÓDULOS DE NAVEGACIÓN */}
                     <div style={{ flex: 1, padding: isSidebarOpen ? '20px 15px' : '20px 10px', display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', overflowX: 'hidden', transition: 'padding 0.4s' }}>
                         <button onClick={() => setActiveView('ventas')} className={`nav-btn ${activeView === 'ventas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('puntoVenta') || 'Punto de Venta') : ''}>
                             <i className="fa-solid fa-cash-register"></i> <span className="nav-label">{t('puntoVenta') || 'Punto de Venta'}</span>
@@ -132,7 +133,7 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                     borderTop: '3px solid var(--primary-red)', boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)', zIndex: 5 
                 }}>
                     
-                    {/* SUCURSAL SELECTOR REDISEÑADO */}
+                    {/* SUCURSAL SELECTOR */}
                     <div className="content-on-top" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                         <div style={{ position: 'relative' }}>
                             <div 
@@ -223,14 +224,13 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                 </div>
             </div>
 
-            {/* 🔥 ESTILOS MAESTROS Y TEMA GLOBAL */}
+            {/* ESTILOS MAESTROS GLOBAL (SÓLO CSS, SIN CAMBIOS) */}
             <style jsx global>{`
+                /* ... (Tus estilos CSS existentes se mantienen intactos aquí) ... */
                 .app-container {
                     display: flex; height: 100vh; width: 100vw; overflow: hidden;
                     background-color: var(--bg-main);
                 }
-                
-                /* TEMA ORIENTAL GLOBAL (Aplica SÓLO al Fondo Principal) */
                 .oriental-theme { position: relative; }
                 .oriental-theme::before {
                     content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
@@ -248,84 +248,33 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                     z-index: 0; pointer-events: none;
                 }
                 .content-on-top { position: relative; z-index: 1; }
-
-                @keyframes silkBreathe {
-                    0% { transform: rotate(0deg) scale(1); }
-                    50% { transform: rotate(2deg) scale(1.02); }
-                    100% { transform: rotate(-2deg) scale(1.05); }
-                }
-
-                @keyframes panPattern {
-                    0% { background-position: 0px 0px; }
-                    100% { background-position: 400px 400px; }
-                }
-
-                /* Menú Lateral Deslizable */
-                .sidebar-premium {
-                    background-color: var(--bg-panel);
-                    border-right: 1px solid var(--border-color);
-                    transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-                    position: relative;
-                    z-index: 10;
-                }
+                @keyframes silkBreathe { 0% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(2deg) scale(1.02); } 100% { transform: rotate(-2deg) scale(1.05); } }
+                @keyframes panPattern { 0% { background-position: 0px 0px; } 100% { background-position: 400px 400px; } }
+                .sidebar-premium { background-color: var(--bg-panel); border-right: 1px solid var(--border-color); transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); position: relative; z-index: 10; }
                 .sidebar-expanded { width: 280px; }
                 .sidebar-collapsed { width: 88px; }
-
-                /* Botón Toggle del Menú */
-                .toggle-sidebar-btn {
-                    position: absolute; top: 25px; right: -16px;
-                    width: 32px; height: 32px; border-radius: 50%;
-                    background: var(--bg-panel); border: 1px solid var(--border-color);
-                    color: var(--text-muted); cursor: pointer; z-index: 100;
-                    display: flex; align-items: center; justify-content: center;
-                    box-shadow: var(--shadow-sm); transition: all 0.4s ease;
-                }
+                .toggle-sidebar-btn { position: absolute; top: 25px; right: -16px; width: 32px; height: 32px; border-radius: 50%; background: var(--bg-panel); border: 1px solid var(--border-color); color: var(--text-muted); cursor: pointer; z-index: 100; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); transition: all 0.4s ease; }
                 .sidebar-collapsed .toggle-sidebar-btn { transform: rotate(180deg); right: -16px; }
                 .toggle-sidebar-btn:hover { color: var(--primary-red); border-color: var(--primary-red); }
-
-                /* 🚀 ADAPTACIÓN DEL LOGO (Circular a Cuadrado Redondeado) */
-                .logo-container {
-                    padding: 30px 20px; display: flex; flex-direction: column; align-items: center; 
-                    border-bottom: 1px solid var(--border-color); transition: padding 0.4s ease;
-                }
+                .logo-container { padding: 30px 20px; display: flex; flex-direction: column; align-items: center; border-bottom: 1px solid var(--border-color); transition: padding 0.4s ease; }
                 .sidebar-collapsed .logo-container { padding: 30px 5px; }
-                
-                .logo-capsule-dark { 
-                    background: white; padding: 10px 25px; border-radius: 20px; 
-                    box-shadow: 0 8px 25px rgba(211, 47, 47, 0.25); margin-bottom: 15px; 
-                    transition: all 0.4s ease; display: flex; justify-content: center; align-items: center; overflow: hidden;
-                }
-                /* FORMA CUADRADA CON BORDES SUAVES AL ESTAR COLAPSADO */
+                .logo-capsule-dark { background: white; padding: 10px 25px; border-radius: 20px; box-shadow: 0 8px 25px rgba(211, 47, 47, 0.25); margin-bottom: 15px; transition: all 0.4s ease; display: flex; justify-content: center; align-items: center; overflow: hidden; }
                 .sidebar-collapsed .logo-capsule-dark { padding: 4px; border-radius: 12px; width: 54px; height: 54px; }
                 .logo-capsule-dark img { height: 70px; object-fit: contain; transition: height 0.4s ease; }
                 .sidebar-collapsed .logo-capsule-dark img { height: 46px; }
-
                 .logo-capsule-light { margin-bottom: 15px; transition: all 0.4s ease; display: flex; justify-content: center; align-items: center; overflow: hidden;}
-                /* FORMA CUADRADA CON BORDES SUAVES AL ESTAR COLAPSADO */
                 .sidebar-collapsed .logo-capsule-light { padding: 0px; border-radius: 12px; width: 52px; height: 52px; }
                 .logo-capsule-light img { height: 90px; object-fit: contain; mix-blend-mode: multiply; transition: height 0.4s ease; }
                 .sidebar-collapsed .logo-capsule-light img { height: 52px; }
-
                 .logo-text { font-size: 1rem; color: var(--text-main); text-align: center; margin: 0; font-weight: 700; white-space: nowrap; overflow: hidden; transition: all 0.3s ease; opacity: 1; max-height: 30px; }
                 .sidebar-collapsed .logo-text { opacity: 0; max-height: 0; }
-
-                /* Botones de Navegación Fluidos */
-                .nav-btn { 
-                    padding: 14px 20px; background: transparent; color: var(--text-muted); border: 1px solid transparent; 
-                    border-radius: 12px; cursor: pointer; text-align: left; font-size: 0.95rem; font-weight: 500; 
-                    display: flex; align-items: center; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
-                    white-space: nowrap; width: 100%; overflow: hidden;
-                }
+                .nav-btn { padding: 14px 20px; background: transparent; color: var(--text-muted); border: 1px solid transparent; border-radius: 12px; cursor: pointer; text-align: left; font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); white-space: nowrap; width: 100%; overflow: hidden; }
                 .nav-btn i { min-width: 24px; text-align: center; font-size: 1.15rem; transition: transform 0.3s; }
                 .nav-label { margin-left: 15px; transition: opacity 0.3s, transform 0.3s; opacity: 1; }
-
-                /* Efectos Hover y Active */
                 .nav-btn:hover { background: rgba(211, 47, 47, 0.05); color: var(--text-main); }
                 .sidebar-expanded .nav-btn:hover { transform: translateX(4px); }
                 .sidebar-collapsed .nav-btn:hover { transform: translateY(-2px); }
                 .nav-btn.active { background: linear-gradient(135deg, var(--primary-red), #b71c1c); color: white; box-shadow: 0 4px 15px rgba(211, 47, 47, 0.3); }
-                
-                /* Comportamiento al Colapsar */
                 .sidebar-collapsed .nav-btn { padding: 14px 0; justify-content: center; }
                 .sidebar-collapsed .nav-btn i { font-size: 1.3rem; margin: 0; }
                 .sidebar-collapsed .nav-label { opacity: 0; width: 0; margin-left: 0; transform: translateX(-10px); display: none; }
@@ -334,7 +283,7 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
     );
 }
 
-// COMPONENTE PRINCIPAL
+// COMPONENTE PRINCIPAL (SIN CAMBIOS)
 export default function Home() {
     const [session, setSession] = useState(null);
     const [perfil, setPerfil] = useState(null);
@@ -370,7 +319,7 @@ export default function Home() {
     };
 
     if (loadingAuth) {
-        return <div suppressHydrationWarning style={{height: '100vh', width: '100vw', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#0f111a', color: 'white'}}>Verificando credenciales...</div>;
+        return <div style={{height: '100vh', width: '100vw', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#0f111a', color: 'white'}}>Verificando credenciales...</div>;
     }
 
     if (!session) {

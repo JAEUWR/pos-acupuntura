@@ -68,7 +68,26 @@ body {
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     animation: fadeInSlide 0.3s ease-out;
 }
-.modal-box i { font-size: 3rem; margin-bottom: 15px; }
+/* =========================================
+   ARREGLO GLOBAL DE TAMAÑO DE ÍCONOS
+========================================= */
+/* Reseteamos el tamaño dentro de los modales para que no se inflen */
+.modal-box i {
+    font-size: inherit;
+    margin-bottom: 0;
+}
+
+/* Protegemos los botones en toda la app para que sus íconos sean proporcionales */
+button i, .btn-action i, .btn-primary i {
+    font-size: 1.15em !important; /* Ligeramente más grande que la letra, perfecto para UI */
+    margin-bottom: 0 !important;
+}
+
+/* Protegemos los encabezados para que el ícono herede el tamaño del título */
+h1 i, h2 i, h3 i, h4 i, h5 i {
+    font-size: inherit !important;
+    margin-bottom: 0 !important;
+}
 .modal-box h3 { margin-bottom: 10px; color: var(--text-main); }
 .modal-box p { color: var(--text-muted); margin-bottom: 20px; }
 
@@ -179,3 +198,22 @@ select option {
 ::-webkit-scrollbar-track { background: var(--bg-dark); }
 ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* =========================================
+   ARREGLO GLOBAL: TEXTOS EN FORMULARIOS (CLARO/OSCURO)
+========================================= */
+input, select, textarea {
+    color: var(--text-main) !important;
+}
+
+/* Color para los textos de ayuda (Placeholders) */
+input::placeholder, textarea::placeholder {
+    color: var(--text-muted) !important;
+    opacity: 0.8; /* Soluciona un bug visual en Firefox y Safari */
+}
+
+/* Color para las opciones desplegadas del Select */
+select option {
+    background-color: var(--bg-panel) !important;
+    color: var(--text-main) !important;
+}

@@ -1,19 +1,19 @@
 import './globals.css'
+import { LanguageProvider } from '../context/LanguageContext';
 
 export const metadata = {
   title: 'Acupuntura HK - POS',
-  description: 'Punto de venta multisede',
+  description: 'Sistema Administrativo y Clínico',
 }
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="es">
-      <head>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-      </head>
-      {/* Agregamos suppressHydrationWarning aquí abajo */}
-      <body suppressHydrationWarning={true}>
-        {children}
+    // ESTOS DOS SUPPRESSHYDRATIONWARNING SON LA CURA DEFINITIVA
+    <html lang="es" suppressHydrationWarning>
+      <body suppressHydrationWarning>
+        <LanguageProvider>
+          {children}
+        </LanguageProvider>
       </body>
     </html>
   )
