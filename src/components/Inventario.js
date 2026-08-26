@@ -14,6 +14,13 @@ export default function Inventario({ branch = 'napoles' }) {
     const [grupos, setGrupos] = useState([]);
     const [showModal, setShowModal] = useState(false);
     
+    // ESTADOS: Buscadores
+    const [searchTermLocal, setSearchTermLocal] = useState('');
+    const [searchTermGlobal, setSearchTermGlobal] = useState('');
+    
+    // 🚀 NUEVO ESTADO: Buscador dentro del modal de familias
+    const [searchFamiliaProd, setSearchFamiliaProd] = useState('');
+
     // Estados Modal Producto
     const [editingProductId, setEditingProductId] = useState(null);
     const [newTipo, setNewTipo] = useState('producto'); 
@@ -25,6 +32,7 @@ export default function Inventario({ branch = 'napoles' }) {
     const [newPriceMedico, setNewPriceMedico] = useState(''); 
     const [selectedGroup, setSelectedGroup] = useState('');
     const [usaPrecioSucursal, setUsaPrecioSucursal] = useState(false);
+    const [esConsulta, setEsConsulta] = useState(false);
 
     // Estados Familias
     const [showGroupModal, setShowGroupModal] = useState(false);
@@ -47,14 +55,15 @@ export default function Inventario({ branch = 'napoles' }) {
         if (gData) setGrupos(gData);
 
         if (subVista === 'catalogo' || subVista === 'grupos') {
-            const { data } = await supabase
+            const { data, error } = await supabase
                 .from('inventario')
-                .select('stock, precio, precio_mayoreo, precio_distribuidor, precio_medico, productos(id, codigo_barras, nombre, precio, precio_mayoreo, precio_distribuidor, precio_medico, grupo_id, tipo, activo, usa_precio_sucursal, grupos_productos(nombre))')
+                .select('stock, precio, precio_mayoreo, precio_distribuidor, precio_medico, productos(id, codigo_barras, nombre, precio, precio_mayoreo, precio_distribuidor, precio_medico, grupo_id, tipo, activo, usa_precio_sucursal, es_consulta, grupos_productos(nombre))')
                 .eq('sucursal_id', sucursalId);
             
+            if (error) console.error("Error cargando catálogo local:", error.message);
             if (data) {
                 const activos = data.filter(inv => inv.productos && inv.productos.activo !== false);
-                setInventario(activos.sort((a,b) => a.productos.nombre.localeCompare(b.productos.nombre)));
+                setInventario(activos.sort((a,b) => (a.productos.nombre || '').localeCompare(b.productos.nombre || '')));
             }
         }
         
@@ -64,21 +73,22 @@ export default function Inventario({ branch = 'napoles' }) {
         }
 
         if (subVista === 'global') {
-            const { data } = await supabase.from('inventario').select('stock, sucursal_id, productos(id, codigo_barras, nombre, tipo, activo, grupos_productos(nombre))');
+            const { data, error } = await supabase.from('inventario').select('stock, sucursal_id, productos(id, codigo_barras, nombre, tipo, activo, es_consulta, grupos_productos(nombre))');
+            if (error) console.error("Error cargando inventario global:", error.message);
             if (data) {
                 const activos = data.filter(inv => inv.productos && inv.productos.activo !== false);
                 const agrupado = {};
                 activos.forEach(inv => {
                     const p = inv.productos;
                     if (!agrupado[p.id]) {
-                        agrupado[p.id] = { id: p.id, code: p.codigo_barras, name: p.nombre, tipo: p.tipo, familia: p.grupos_productos?.nombre || t('suelto'), napoles: 0, obrera: 0, pedregal: 0, total: 0 };
+                        agrupado[p.id] = { id: p.id, code: p.codigo_barras, name: p.nombre, tipo: p.tipo, es_consulta: p.es_consulta, familia: p.grupos_productos?.nombre || t('suelto') || 'Suelto', napoles: 0, obrera: 0, pedregal: 0, total: 0 };
                     }
                     if (inv.sucursal_id === 1) agrupado[p.id].napoles += inv.stock;
                     if (inv.sucursal_id === 2) agrupado[p.id].obrera += inv.stock;
                     if (inv.sucursal_id === 3) agrupado[p.id].pedregal += inv.stock;
                     if (p.tipo !== 'servicio') agrupado[p.id].total += inv.stock;
                 });
-                setInventarioGlobal(Object.values(agrupado).sort((a,b) => a.name.localeCompare(b.name)));
+                setInventarioGlobal(Object.values(agrupado).sort((a,b) => (a.name || '').localeCompare(b.name || '')));
             }
         }
     };
@@ -145,7 +155,7 @@ export default function Inventario({ branch = 'napoles' }) {
     const openNewArticleModal = () => {
         setEditingProductId(null); setNewTipo('producto'); setNewCode(''); setNewName(''); 
         setNewPrice(''); setNewPriceMayoreo(''); setNewPriceDistribuidor(''); setNewPriceMedico(''); 
-        setSelectedGroup(''); setUsaPrecioSucursal(false); setShowModal(true);
+        setSelectedGroup(''); setUsaPrecioSucursal(false); setEsConsulta(false); setShowModal(true);
     };
 
     const openEditArticleModal = (inv) => {
@@ -156,7 +166,9 @@ export default function Inventario({ branch = 'napoles' }) {
         setNewPriceMayoreo(isLocal ? (inv.precio_mayoreo ?? p.precio_mayoreo) : p.precio_mayoreo);
         setNewPriceDistribuidor(isLocal ? (inv.precio_distribuidor ?? p.precio_distribuidor) : p.precio_distribuidor);
         setNewPriceMedico(isLocal ? (inv.precio_medico ?? p.precio_medico) : p.precio_medico);
-        setSelectedGroup(p.grupo_id || ''); setUsaPrecioSucursal(p.usa_precio_sucursal || false); setShowModal(true);
+        setSelectedGroup(p.grupo_id || ''); setUsaPrecioSucursal(p.usa_precio_sucursal || false); 
+        setEsConsulta(p.es_consulta || false);
+        setShowModal(true);
     };
 
     const eliminarArticulo = async (producto_id) => {
@@ -177,7 +189,8 @@ export default function Inventario({ branch = 'napoles' }) {
         const payload = {
             codigo_barras: newCode.trim() || `GEN-${Date.now()}`, 
             nombre: newName.trim(), tipo: newTipo, precio: pGeneral, precio_mayoreo: pMayoreo, precio_distribuidor: pDist, precio_medico: pMed,
-            grupo_id: selectedGroup ? parseInt(selectedGroup) : null, activo: true, usa_precio_sucursal: usaPrecioSucursal
+            grupo_id: selectedGroup ? parseInt(selectedGroup) : null, activo: true, usa_precio_sucursal: usaPrecioSucursal,
+            es_consulta: newTipo === 'servicio' ? esConsulta : false 
         };
 
         if (editingProductId) {
@@ -186,7 +199,7 @@ export default function Inventario({ branch = 'napoles' }) {
             if (usaPrecioSucursal) {
                 await supabase.from('inventario').update({ precio: pGeneral, precio_mayoreo: pMayoreo, precio_distribuidor: pDist, precio_medico: pMed }).match({ producto_id: editingProductId, sucursal_id: sucursalId });
             }
-            alert(t('productoActualizadoExito'));
+            alert(t('productoActualizadoExito') || 'Artículo actualizado exitosamente.');
         } else {
             const { data: prodData, error: prodError } = await supabase.from('productos').insert([payload]).select();
             if (prodError) return alert(`Error: ${prodError.message}`);
@@ -204,12 +217,13 @@ export default function Inventario({ branch = 'napoles' }) {
         setShowModal(false); fetchDatos();
     };
 
-    const openNewGroupModal = () => { setEditingGroupId(null); setGroupName(''); setSelectedProductsForGroup([]); setShowGroupModal(true); };
+    // 🚀 AL ABRIR LOS MODALES DE FAMILIA, REINICIAMOS EL BUSCADOR
+    const openNewGroupModal = () => { setEditingGroupId(null); setGroupName(''); setSelectedProductsForGroup([]); setSearchFamiliaProd(''); setShowGroupModal(true); };
 
     const openEditGroupModal = (grupo) => {
         setEditingGroupId(grupo.id); setGroupName(grupo.nombre);
         const prodsEnGrupo = inventario.filter(inv => inv.productos && inv.productos.grupo_id === grupo.id).map(inv => inv.productos.id);
-        setSelectedProductsForGroup(prodsEnGrupo); setShowGroupModal(true);
+        setSelectedProductsForGroup(prodsEnGrupo); setSearchFamiliaProd(''); setShowGroupModal(true);
     };
 
     const toggleProductSelection = (prodId) => {
@@ -261,8 +275,32 @@ export default function Inventario({ branch = 'napoles' }) {
 
     const triggerPDFPrint = () => { window.print(); };
 
+    // LÓGICA DE FILTRADO PARA LOS BUSCADORES DE CATÁLOGOS
+    const inventarioFiltrado = inventario.filter(inv => {
+        if (!inv.productos) return false;
+        const term = (searchTermLocal || '').toLowerCase();
+        return (inv.productos.nombre || '').toLowerCase().includes(term) || 
+               (inv.productos.codigo_barras || '').toLowerCase().includes(term) ||
+               (inv.productos.grupos_productos?.nombre || '').toLowerCase().includes(term);
+    });
+
+    const globalFiltrado = inventarioGlobal.filter(inv => {
+        const term = (searchTermGlobal || '').toLowerCase();
+        return (inv.name || '').toLowerCase().includes(term) || 
+               (inv.code || '').toLowerCase().includes(term) ||
+               (inv.familia || '').toLowerCase().includes(term);
+    });
+
+    // 🚀 NUEVA LÓGICA DE FILTRADO PARA EL MODAL DE FAMILIAS
+    const productosFamiliaFiltrados = inventario.filter(inv => {
+        if (!inv.productos) return false;
+        const term = (searchFamiliaProd || '').toLowerCase();
+        return (inv.productos.nombre || '').toLowerCase().includes(term) || 
+               (inv.productos.codigo_barras || '').toLowerCase().includes(term);
+    });
+
     return (
-        <div className="view-section active" style={{flexDirection: 'column', gap: '20px'}}>
+        <div className="view-section active" style={{flexDirection: 'column', gap: '20px', paddingRight: '5px'}}>
             
             {/* BARRA SUPERIOR DE NAVEGACIÓN */}
             <div style={{display: 'flex', gap: '15px', background: 'var(--bg-panel)', padding: '15px 25px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)'}}>
@@ -275,9 +313,21 @@ export default function Inventario({ branch = 'napoles' }) {
             {/* VISTA 1: CATÁLOGO LOCAL */}
             {subVista === 'catalogo' && (
                 <div className="panel" style={{ overflowX: 'auto', padding: '0', borderRadius: '12px' }}>
-                    <div style={{display: 'flex', justifyContent: 'space-between', padding: '20px 25px', borderBottom: '1px solid var(--border-color)'}}>
-                        <h2 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-store" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('inventario')} - {branch.toUpperCase()}</h2>
-                        <button className="btn-action btn-primary" onClick={openNewArticleModal} style={{borderRadius: '8px', boxShadow: '0 4px 10px rgba(2, 132, 199, 0.2)'}}><i className="fa-solid fa-plus"></i> {t('nuevoProducto')}</button>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 25px', borderBottom: '1px solid var(--border-color)'}}>
+                        <h2 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem', whiteSpace: 'nowrap'}}><i className="fa-solid fa-store" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('inventario')} - {branch.toUpperCase()}</h2>
+                        
+                        <div style={{position: 'relative', flex: 1, maxWidth: '400px', margin: '0 20px'}}>
+                            <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)'}}></i>
+                            <input 
+                                type="text" 
+                                placeholder={t('buscarArticulo') || 'Buscar por nombre, código o familia...'} 
+                                value={searchTermLocal} 
+                                onChange={(e) => setSearchTermLocal(e.target.value)} 
+                                style={{width: '100%', padding: '10px 10px 10px 35px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem'}}
+                            />
+                        </div>
+
+                        <button className="btn-action btn-primary" onClick={openNewArticleModal} style={{borderRadius: '8px', boxShadow: '0 4px 10px rgba(2, 132, 199, 0.2)', flexShrink: 0}}><i className="fa-solid fa-plus"></i> {t('nuevoProducto')}</button>
                     </div>
                     <table className="data-table" style={{ minWidth: '1200px' }}>
                         <thead style={{background: 'var(--bg-main)'}}>
@@ -296,7 +346,7 @@ export default function Inventario({ branch = 'napoles' }) {
                             </tr>
                         </thead>
                         <tbody>
-                            {inventario.map(inv => {
+                            {inventarioFiltrado.map(inv => {
                                 if (!inv.productos) return null;
                                 const p = inv.productos;
                                 const isLocal = p.usa_precio_sucursal;
@@ -309,13 +359,16 @@ export default function Inventario({ branch = 'napoles' }) {
                                 return (
                                 <tr key={`${p.id}-${branch}`}>
                                     <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{p.codigo_barras || 'N/A'}</td>
-                                    <td><span style={{fontSize:'0.75rem', background:'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding:'4px 8px', borderRadius:'12px', fontWeight: 'bold'}}>{p.grupos_productos?.nombre || t('suelto')}</span></td>
+                                    <td><span style={{fontSize:'0.75rem', background:'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding:'4px 8px', borderRadius:'12px', fontWeight: 'bold'}}>{p.grupos_productos?.nombre || t('suelto') || 'Suelto'}</span></td>
                                     <td>
                                         <div style={{display: 'flex', alignItems: 'center', gap: '8px', color: isLocal ? '#ffb300' : '#00b0ff'}}>
                                             <i className={isLocal ? "fa-solid fa-store" : "fa-solid fa-globe"} title={isLocal ? t('tooltipPrecioSucursal') : t('tooltipPrecioGlobal')}></i>
                                             <strong style={{color: 'var(--text-main)', fontSize: '0.95rem'}}>{p.nombre}</strong>
                                         </div>
-                                        {p.tipo === 'servicio' && <span style={{display: 'inline-block', fontSize: '0.7rem', color: '#00b0ff', marginTop: '6px', background: 'rgba(0, 176, 255, 0.1)', padding: '2px 8px', borderRadius: '4px'}}><i className="fa-solid fa-hand-sparkles"></i> {t('servicioInfinito')}</span>}
+                                        <div style={{display: 'flex', gap: '5px', marginTop: '6px', flexWrap: 'wrap'}}>
+                                            {p.tipo === 'servicio' && <span style={{display: 'inline-block', fontSize: '0.7rem', color: '#00b0ff', background: 'rgba(0, 176, 255, 0.1)', padding: '2px 8px', borderRadius: '4px'}}><i className="fa-solid fa-hand-sparkles"></i> {t('servicioInfinito')}</span>}
+                                            {p.es_consulta && <span style={{display: 'inline-block', fontSize: '0.7rem', color: '#3b82f6', background: 'rgba(59, 130, 246, 0.1)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', border: '1px solid rgba(59, 130, 246, 0.3)'}}><i className="fa-solid fa-user-doctor"></i> {t('consultaMedicaBadge') || 'Consulta Médica'}</span>}
+                                        </div>
                                     </td>
                                     <td><input id={`precio-${p.id}`} type="number" defaultValue={pGen} style={{width:'70px', background:'var(--bg-main)', color:'var(--text-main)', border: isLocal ? '1px solid #ffb300' : '1px solid var(--border-color)', padding:'6px', borderRadius: '6px'}} /></td>
                                     <td><input id={`mayoreo-${p.id}`} type="number" defaultValue={pMay} style={{width:'70px', background:'var(--bg-main)', color:'var(--text-main)', border: isLocal ? '1px solid #ffb300' : '1px solid var(--border-color)', padding:'6px', borderRadius: '6px'}} /></td>
@@ -353,7 +406,7 @@ export default function Inventario({ branch = 'napoles' }) {
                                     </td>
                                 </tr>
                             )})}
-                            {inventario.length === 0 && <tr><td colSpan="11" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-box-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos')}</td></tr>}
+                            {inventarioFiltrado.length === 0 && <tr><td colSpan="11" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-box-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos') || 'No se encontraron resultados.'}</td></tr>}
                         </tbody>
                     </table>
                 </div>
@@ -362,8 +415,19 @@ export default function Inventario({ branch = 'napoles' }) {
             {/* VISTA 2: GLOBAL */}
             {subVista === 'global' && (
                 <div className="panel" style={{ overflowX: 'auto', padding: '0', borderRadius: '12px' }}>
-                    <div style={{display: 'flex', justifyContent: 'space-between', padding: '20px 25px', borderBottom: '1px solid var(--border-color)'}}>
-                        <h2 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-earth-americas" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('inventarioGlobal')}</h2>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 25px', borderBottom: '1px solid var(--border-color)'}}>
+                        <h2 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem', whiteSpace: 'nowrap'}}><i className="fa-solid fa-earth-americas" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('inventarioGlobal')}</h2>
+                        
+                        <div style={{position: 'relative', flex: 1, maxWidth: '400px', marginLeft: '20px'}}>
+                            <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)'}}></i>
+                            <input 
+                                type="text" 
+                                placeholder={t('buscarArticulo') || 'Buscar por nombre, código o familia...'} 
+                                value={searchTermGlobal} 
+                                onChange={(e) => setSearchTermGlobal(e.target.value)} 
+                                style={{width: '100%', padding: '10px 10px 10px 35px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem'}}
+                            />
+                        </div>
                     </div>
                     <table className="data-table" style={{ minWidth: '900px' }}>
                         <thead style={{background: 'var(--bg-main)'}}>
@@ -376,13 +440,16 @@ export default function Inventario({ branch = 'napoles' }) {
                             </tr>
                         </thead>
                         <tbody>
-                            {inventarioGlobal.map(inv => (
+                            {globalFiltrado.map(inv => (
                                 <tr key={inv.id}>
                                     <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{inv.code || 'N/A'}</td>
                                     <td><span style={{fontSize:'0.75rem', background:'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding:'4px 8px', borderRadius:'12px', fontWeight: 'bold'}}>{inv.familia}</span></td>
                                     <td>
                                         <strong style={{color: 'var(--text-main)', fontSize: '0.95rem'}}>{inv.name}</strong>
-                                        {inv.tipo === 'servicio' && <span style={{display: 'inline-block', fontSize: '0.7rem', color: '#00b0ff', marginTop: '6px', background: 'rgba(0, 176, 255, 0.1)', padding: '2px 8px', borderRadius: '4px'}}><i className="fa-solid fa-hand-sparkles"></i> {t('servicioInfinito')}</span>}
+                                        <div style={{display: 'flex', gap: '5px', marginTop: '6px', flexWrap: 'wrap'}}>
+                                            {inv.tipo === 'servicio' && <span style={{display: 'inline-block', fontSize: '0.7rem', color: '#00b0ff', background: 'rgba(0, 176, 255, 0.1)', padding: '2px 8px', borderRadius: '4px'}}><i className="fa-solid fa-hand-sparkles"></i> {t('servicioInfinito')}</span>}
+                                            {inv.es_consulta && <span style={{display: 'inline-block', fontSize: '0.7rem', color: '#3b82f6', background: 'rgba(59, 130, 246, 0.1)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', border: '1px solid rgba(59, 130, 246, 0.3)'}}><i className="fa-solid fa-user-doctor"></i> {t('consultaMedicaBadge') || 'Consulta Médica'}</span>}
+                                        </div>
                                     </td>
                                     {inv.tipo === 'servicio' ? (
                                         <><td style={{textAlign: 'center', color: '#00b0ff', fontSize: '1.2rem'}}><i className="fa-solid fa-infinity"></i></td><td style={{textAlign: 'center', color: '#00b0ff', fontSize: '1.2rem'}}><i className="fa-solid fa-infinity"></i></td><td style={{textAlign: 'center', color: '#00b0ff', fontSize: '1.2rem'}}><i className="fa-solid fa-infinity"></i></td><td style={{textAlign: 'center', color: '#00b0ff', fontSize: '1.2rem', fontWeight: 'bold'}}><i className="fa-solid fa-infinity"></i></td></>
@@ -391,6 +458,7 @@ export default function Inventario({ branch = 'napoles' }) {
                                     )}
                                 </tr>
                             ))}
+                            {globalFiltrado.length === 0 && <tr><td colSpan="7" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-earth-americas fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos') || 'No se encontraron resultados.'}</td></tr>}
                         </tbody>
                     </table>
                 </div>
@@ -482,7 +550,7 @@ export default function Inventario({ branch = 'napoles' }) {
                 </div>
             )}
 
-            {/* Modal Familias */}
+            {/* 🚀 MODAL FAMILIAS (CON BUSCADOR INTEGRADOR) */}
             {showGroupModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '16px', width: '500px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-lg)'}}>
@@ -491,11 +559,23 @@ export default function Inventario({ branch = 'napoles' }) {
                         <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '5px', fontWeight: 'bold'}}>{t('labelNombreFamilia')}</label>
                         <input type="text" value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder={t('ejemploFamilia')} style={{width:'100%', padding:'12px', marginBottom: '20px', background:'var(--bg-main)', color:'var(--text-main)', border:'1px solid var(--border-color)', borderRadius:'8px'}} />
                         
-                        <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '5px', fontWeight: 'bold'}}>{t('seleccionaProductosFamilia')}</label>
+                        <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '10px', fontWeight: 'bold'}}>{t('seleccionaProductosFamilia')}</label>
+                        
+                        {/* 🚀 BUSCADOR DENTRO DEL MODAL DE FAMILIAS */}
+                        <div style={{position: 'relative', marginBottom: '10px'}}>
+                            <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '12px', top: '12px', color: 'var(--text-muted)'}}></i>
+                            <input 
+                                type="text" 
+                                placeholder={t('buscarArticulo') || 'Buscar producto...'} 
+                                value={searchFamiliaProd} 
+                                onChange={(e) => setSearchFamiliaProd(e.target.value)} 
+                                style={{width: '100%', padding: '10px 10px 10px 35px', background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem', outline: 'none'}} 
+                            />
+                        </div>
+
                         <div style={{ maxHeight: '250px', overflowY: 'auto', background: 'var(--bg-main)', padding: '15px', marginBottom: '25px', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {inventario.map(inv => {
+                            {productosFamiliaFiltrados.map(inv => {
                                 const prod = inv.productos;
-                                if (!prod) return null;
                                 const isSelected = selectedProductsForGroup.includes(prod.id);
                                 return (
                                     <label key={prod.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: isSelected ? 'rgba(22, 163, 74, 0.1)' : 'var(--bg-panel)', border: isSelected ? '1px solid var(--success)' : '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s' }}>
@@ -507,6 +587,7 @@ export default function Inventario({ branch = 'napoles' }) {
                                     </label>
                                 )
                             })}
+                            {productosFamiliaFiltrados.length === 0 && <div style={{textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic', padding: '20px'}}>{t('sinDatos')}</div>}
                         </div>
                         
                         <div style={{display:'flex', gap:'15px'}}>
@@ -539,6 +620,13 @@ export default function Inventario({ branch = 'napoles' }) {
                                 </select>
                             </div>
                         </div>
+
+                        {newTipo === 'servicio' && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', cursor: 'pointer', background: esConsulta ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-main)', padding: '12px 15px', borderRadius: '8px', border: esConsulta ? '1px solid #3b82f6' : '1px solid var(--border-color)', transition: 'all 0.3s ease' }}>
+                                <input type="checkbox" checked={esConsulta} onChange={e => setEsConsulta(e.target.checked)} style={{width: '20px', height: '20px', accentColor: '#3b82f6'}} />
+                                <span style={{color: esConsulta ? '#3b82f6' : 'var(--text-main)', fontSize: '0.9rem', fontWeight: 'bold'}}><i className="fa-solid fa-user-doctor"></i> {t('esConsultaMedica') || 'Contabilizar como "Consulta Médica"'}</span>
+                            </label>
+                        )}
 
                         <div style={{marginBottom: '15px'}}>
                             <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '5px', fontWeight: 'bold'}}>{t('codigoBarras')}</label>
