@@ -1,9 +1,8 @@
 'use client';
 import { supabase } from '../lib/supabase';
-import { useLanguage } from '../context/LanguageContext'; // 1. Importamos el hook
+import { useLanguage } from '../context/LanguageContext'; 
 
 export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
-    // 2. Extraemos la función de traducción (t) y el estado del idioma (solo para el selector si se ocupara aquí)
     const { t, language, setLanguage } = useLanguage();
 
     const handleLogout = async () => {
@@ -39,15 +38,14 @@ export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
     return (
         <div style={{ width: '260px', background: 'var(--bg-panel)', padding: '25px 20px', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border-color)', height: '100vh', boxShadow: '2px 0 10px rgba(0,0,0,0.2)'}}>
             
-            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                {/* 3. Reemplazamos el texto estático por t('llave') */}
+            <div style={{ textAlign: 'center', margin: '0 0 20px 0' }}>
                 <h3 style={{ color: 'white', margin: '0 0 5px 0', fontSize: '1.2rem', letterSpacing: '0.5px' }}>{t('panelControl')}</h3>
                 <span style={{ fontSize: '0.75rem', color: 'var(--primary-red)', fontWeight: 'bold', letterSpacing: '1px' }}>
                     {rol?.toUpperCase()}
                 </span>
             </div>
 
-            {/* SELECTOR DE IDIOMA EN LA BARRA LATERAL */}
+            {/* SELECTOR DE IDIOMA */}
             <div style={{ marginBottom: '25px', display: 'flex', gap: '5px', justifyContent: 'center' }}>
                 <button onClick={() => setLanguage('es')} style={{ background: language === 'es' ? 'var(--primary-red)' : 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '0.8rem' }}>ES</button>
                 <button onClick={() => setLanguage('en')} style={{ background: language === 'en' ? 'var(--primary-red)' : 'var(--bg-dark)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '0.8rem' }}>EN</button>
@@ -60,9 +58,10 @@ export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
                         <i className="fa-solid fa-cash-register" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('puntoVenta')}
                     </button>
                 )}
-                {hasAccess('caja') && (
-                    <button style={getBtnStyle('caja')} onClick={() => setActiveView('caja')}>
-                        <i className="fa-solid fa-vault" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('flujoCaja')}
+                {/* 🚀 NUEVA PESTAÑA UNIFICADA */}
+                {hasAccess('finanzas') && (
+                    <button style={getBtnStyle('finanzas')} onClick={() => setActiveView('finanzas')}>
+                        <i className="fa-solid fa-chart-pie" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('movimientosFinanzas') || 'Movimientos y Finanzas'}
                     </button>
                 )}
                 {hasAccess('doctores') && (
@@ -80,11 +79,6 @@ export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
                         <i className="fa-solid fa-tags" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('promociones')}
                     </button>
                 )}
-                {hasAccess('reportes') && (
-                    <button style={getBtnStyle('reportes')} onClick={() => setActiveView('reportes')}>
-                        <i className="fa-solid fa-chart-line" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('reportes')}
-                    </button>
-                )}
                 {hasAccess('clientes') && (
                     <button style={getBtnStyle('clientes')} onClick={() => setActiveView('clientes')}>
                         <i className="fa-solid fa-users" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('clientes')}
@@ -92,7 +86,7 @@ export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
                 )}
                 {hasAccess('escritorioMedico') && (
                     <button style={getBtnStyle('escritorioMedico')} onClick={() => setActiveView('escritorioMedico')}>
-                        <i className="fa-solid fa-stethoscope" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('escritorioMedico')}
+                        <i className="fa-solid fa-user-doctor" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('escritorioMedico')}
                     </button>
                 )}
                 {hasAccess('configuracion') && (

@@ -9,15 +9,13 @@ import Login from '../components/Login';
 import { LanguageProvider, useLanguage } from '../context/LanguageContext';
 
 // 🚀 IMPORTAMOS TODOS LOS MÓDULOS DEL CLIENTE CON SSR DESACTIVADO
-// Esto previene fallos de hidratación causados por Date.now() o Math.random() en el servidor.
 const Ventas = dynamic(() => import('../components/Ventas'), { ssr: false });
 const ConsumosMedicos = dynamic(() => import('../components/ConsumosMedicos'), { ssr: false });
 const Inventario = dynamic(() => import('../components/Inventario'), { ssr: false });
+const Finanzas = dynamic(() => import('../components/Finanzas'), { ssr: false }); // 🚀 Nuevo Módulo Unificado
 const Promociones = dynamic(() => import('../components/Promociones'), { ssr: false });
-const Reportes = dynamic(() => import('../components/Reportes'), { ssr: false });
 const Clientes = dynamic(() => import('../components/Clientes'), { ssr: false });
 const Configuracion = dynamic(() => import('../components/Configuracion'), { ssr: false });
-const Caja = dynamic(() => import('../components/Caja'), { ssr: false });
 const EscritorioMedico = dynamic(() => import('../components/EscritorioMedico'), { ssr: false });
 
 // COMPONENTE INTERNO DEL DASHBOARD
@@ -54,7 +52,7 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
     };
 
     return (
-        <div className="app-container oriental-theme">
+        <div className="app-container oriental-theme" suppressHydrationWarning>
             
             {/* 🚀 SLIDEBAR (MENÚ LATERAL COLAPSABLE) */}
             <div className={`sidebar-premium ${isSidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
@@ -89,8 +87,9 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                         <button onClick={() => setActiveView('ventas')} className={`nav-btn ${activeView === 'ventas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('puntoVenta') || 'Punto de Venta') : ''}>
                             <i className="fa-solid fa-cash-register"></i> <span className="nav-label">{t('puntoVenta') || 'Punto de Venta'}</span>
                         </button>
-                        <button onClick={() => setActiveView('caja')} className={`nav-btn ${activeView === 'caja' ? 'active' : ''}`} title={!isSidebarOpen ? (t('cajaFinanzas') || 'Caja y Finanzas') : ''}>
-                            <i className="fa-solid fa-money-bill-wave"></i> <span className="nav-label">{t('cajaFinanzas') || 'Caja y Finanzas'}</span>
+                        {/* 🚀 NUEVA PESTAÑA: FINANZAS Y MOVIMIENTOS */}
+                        <button onClick={() => setActiveView('finanzas')} className={`nav-btn ${activeView === 'finanzas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('movimientosFinanzas') || 'Movimientos y Finanzas') : ''}>
+                            <i className="fa-solid fa-chart-pie"></i> <span className="nav-label">{t('movimientosFinanzas') || 'Movimientos y Finanzas'}</span>
                         </button>
                         <button onClick={() => setActiveView('doctores')} className={`nav-btn ${activeView === 'doctores' ? 'active' : ''}`} title={!isSidebarOpen ? (t('consumosMedicos') || 'Consumos Médicos') : ''}>
                             <i className="fa-solid fa-syringe"></i> <span className="nav-label">{t('consumosMedicos') || 'Consumos Médicos'}</span>
@@ -106,9 +105,6 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                         </button>
                         <button onClick={() => setActiveView('promociones')} className={`nav-btn ${activeView === 'promociones' ? 'active' : ''}`} title={!isSidebarOpen ? (t('promociones') || 'Promociones') : ''}>
                             <i className="fa-solid fa-tags"></i> <span className="nav-label">{t('promociones') || 'Promociones'}</span>
-                        </button>
-                        <button onClick={() => setActiveView('reportes')} className={`nav-btn ${activeView === 'reportes' ? 'active' : ''}`} title={!isSidebarOpen ? (t('reportes') || 'Reportes') : ''}>
-                            <i className="fa-solid fa-chart-line"></i> <span className="nav-label">{t('reportes') || 'Reportes'}</span>
                         </button>
                     </div>
 
@@ -126,7 +122,7 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
             {/* ÁREA PRINCIPAL DERECHA */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', zIndex: 1 }}>
                 
-                {/* 🚀 TOPBAR ELEGANTE (SIN LA MANCHA ROJA) */}
+                {/* 🚀 TOPBAR ELEGANTE */}
                 <div style={{ 
                     padding: '15px 30px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
                     background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-color)', 
@@ -210,64 +206,52 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                     </div>
                 </div>
 
-                {/* CONTENEDOR DE LAS VISTAS (Fondo Normalizado) */}
+                {/* CONTENEDOR DE LAS VISTAS */}
                 <div className="content-on-top" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
                     {activeView === 'ventas' && <Ventas branch={branch} perfilActual={perfil} />}
-                    {activeView === 'caja' && <Caja branch={branch} />}
+                    {/* 🚀 EL NUEVO MÓDULO UNIFICADO SE RENDERIZA AQUÍ */}
+                    {activeView === 'finanzas' && <Finanzas branch={branch} perfilActual={perfil} />}
                     {activeView === 'doctores' && <ConsumosMedicos branch={branch} />}
                     {activeView === 'inventario' && <Inventario branch={branch} />}
                     {activeView === 'promociones' && <Promociones />}
-                    {activeView === 'reportes' && <Reportes branch={branch} perfilActual={perfil} />}
                     {activeView === 'clientes' && <Clientes />}
                     {activeView === 'escritorioMedico' && <EscritorioMedico branch={branch} perfilActual={perfil} />}
                     {activeView === 'configuracion' && <Configuracion perfilActual={perfil} />}
                 </div>
             </div>
 
-            {/* ESTILOS MAESTROS GLOBAL (SÓLO CSS, SIN CAMBIOS) */}
+            {/* ESTILOS MAESTROS GLOBAL */}
             <style jsx global>{`
-                /* ... (Tus estilos CSS existentes se mantienen intactos aquí) ... */
-                .app-container {
-                    display: flex; height: 100vh; width: 100vw; overflow: hidden;
-                    background-color: var(--bg-main);
-                }
+                .app-container { display: flex; height: 100vh; width: 100vw; overflow: hidden; background-color: var(--bg-main); }
                 .oriental-theme { position: relative; }
-                .oriental-theme::before {
-                    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-                    background: 
-                        radial-gradient(circle at 30% 30%, rgba(211, 47, 47, 0.05), transparent 40%),
-                        radial-gradient(circle at 70% 60%, rgba(183, 28, 28, 0.03), transparent 50%),
-                        radial-gradient(circle at 40% 80%, rgba(255, 82, 82, 0.04), transparent 40%);
-                    animation: silkBreathe 20s ease-in-out infinite alternate;
-                    z-index: 0; pointer-events: none;
-                }
-                .oriental-theme::after {
-                    content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-                    background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 20c0-11.046 8.954-20 20-20v2c-9.941 0-18 8.059-18 18 0 9.941 8.059 18 18 18v2c-11.046 0-20-8.954-20-20zM0 20c0-11.046 8.954-20 20-20v2C10.059 2 2 10.059 2 20c0 9.941 8.059 18 18 18v2C8.954 40 0 31.046 0 20z' fill='%23d32f2f' fill-opacity='0.03' fill-rule='evenodd'/%3E%3C/svg%3E");
-                    animation: panPattern 90s linear infinite;
-                    z-index: 0; pointer-events: none;
-                }
+                .oriental-theme::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle at 30% 30%, rgba(211, 47, 47, 0.05), transparent 40%), radial-gradient(circle at 70% 60%, rgba(183, 28, 28, 0.03), transparent 50%), radial-gradient(circle at 40% 80%, rgba(255, 82, 82, 0.04), transparent 40%); animation: silkBreathe 20s ease-in-out infinite alternate; z-index: 0; pointer-events: none; }
+                .oriental-theme::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 20c0-11.046 8.954-20 20-20v2c-9.941 0-18 8.059-18 18 0 9.941 8.059 18 18 18v2c-11.046 0-20-8.954-20-20zM0 20c0-11.046 8.954-20 20-20v2C10.059 2 2 10.059 2 20c0 9.941 8.059 18 18 18v2C8.954 40 0 31.046 0 20z' fill='%23d32f2f' fill-opacity='0.03' fill-rule='evenodd'/%3E%3C/svg%3E"); animation: panPattern 90s linear infinite; z-index: 0; pointer-events: none; }
                 .content-on-top { position: relative; z-index: 1; }
                 @keyframes silkBreathe { 0% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(2deg) scale(1.02); } 100% { transform: rotate(-2deg) scale(1.05); } }
                 @keyframes panPattern { 0% { background-position: 0px 0px; } 100% { background-position: 400px 400px; } }
+                
                 .sidebar-premium { background-color: var(--bg-panel); border-right: 1px solid var(--border-color); transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); position: relative; z-index: 10; }
                 .sidebar-expanded { width: 280px; }
                 .sidebar-collapsed { width: 88px; }
                 .toggle-sidebar-btn { position: absolute; top: 25px; right: -16px; width: 32px; height: 32px; border-radius: 50%; background: var(--bg-panel); border: 1px solid var(--border-color); color: var(--text-muted); cursor: pointer; z-index: 100; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); transition: all 0.4s ease; }
                 .sidebar-collapsed .toggle-sidebar-btn { transform: rotate(180deg); right: -16px; }
                 .toggle-sidebar-btn:hover { color: var(--primary-red); border-color: var(--primary-red); }
+                
                 .logo-container { padding: 30px 20px; display: flex; flex-direction: column; align-items: center; border-bottom: 1px solid var(--border-color); transition: padding 0.4s ease; }
                 .sidebar-collapsed .logo-container { padding: 30px 5px; }
                 .logo-capsule-dark { background: white; padding: 10px 25px; border-radius: 20px; box-shadow: 0 8px 25px rgba(211, 47, 47, 0.25); margin-bottom: 15px; transition: all 0.4s ease; display: flex; justify-content: center; align-items: center; overflow: hidden; }
                 .sidebar-collapsed .logo-capsule-dark { padding: 4px; border-radius: 12px; width: 54px; height: 54px; }
                 .logo-capsule-dark img { height: 70px; object-fit: contain; transition: height 0.4s ease; }
                 .sidebar-collapsed .logo-capsule-dark img { height: 46px; }
+                
                 .logo-capsule-light { margin-bottom: 15px; transition: all 0.4s ease; display: flex; justify-content: center; align-items: center; overflow: hidden;}
                 .sidebar-collapsed .logo-capsule-light { padding: 0px; border-radius: 12px; width: 52px; height: 52px; }
                 .logo-capsule-light img { height: 90px; object-fit: contain; mix-blend-mode: multiply; transition: height 0.4s ease; }
                 .sidebar-collapsed .logo-capsule-light img { height: 52px; }
+                
                 .logo-text { font-size: 1rem; color: var(--text-main); text-align: center; margin: 0; font-weight: 700; white-space: nowrap; overflow: hidden; transition: all 0.3s ease; opacity: 1; max-height: 30px; }
                 .sidebar-collapsed .logo-text { opacity: 0; max-height: 0; }
+                
                 .nav-btn { padding: 14px 20px; background: transparent; color: var(--text-muted); border: 1px solid transparent; border-radius: 12px; cursor: pointer; text-align: left; font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); white-space: nowrap; width: 100%; overflow: hidden; }
                 .nav-btn i { min-width: 24px; text-align: center; font-size: 1.15rem; transition: transform 0.3s; }
                 .nav-label { margin-left: 15px; transition: opacity 0.3s, transform 0.3s; opacity: 1; }
@@ -283,14 +267,16 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
     );
 }
 
-// COMPONENTE PRINCIPAL (SIN CAMBIOS)
+// COMPONENTE PRINCIPAL BLINDADO
 export default function Home() {
+    const [isMounted, setIsMounted] = useState(false);
     const [session, setSession] = useState(null);
     const [perfil, setPerfil] = useState(null);
     const [loadingAuth, setLoadingAuth] = useState(true);
     const [branch, setBranch] = useState('napoles');
 
     useEffect(() => {
+        setIsMounted(true);
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session);
             if (session) fetchPerfil(session.user.id);
@@ -307,7 +293,7 @@ export default function Home() {
     }, []);
 
     const fetchPerfil = async (userId) => {
-        const { data, error } = await supabase.from('perfiles_usuarios').select('*').eq('id', userId).single();
+        const { data } = await supabase.from('perfiles_usuarios').select('*').eq('id', userId).single();
         if (data) {
             setPerfil(data);
             if (data.sucursal_id) {
@@ -318,8 +304,11 @@ export default function Home() {
         setLoadingAuth(false);
     };
 
+    // 🚀 AL NO RENDERIZAR EN SERVIDOR, ANULAMOS EL ERROR DE LA EXTENSIÓN
+    if (!isMounted) return null; 
+
     if (loadingAuth) {
-        return <div style={{height: '100vh', width: '100vw', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#0f111a', color: 'white'}}>Verificando credenciales...</div>;
+        return <div suppressHydrationWarning style={{height: '100vh', width: '100vw', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#0f111a', color: 'white'}}>Verificando credenciales...</div>;
     }
 
     if (!session) {
