@@ -36,6 +36,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
 
     const [saldoCaja, setSaldoCaja] = useState(0);
     const [historialCaja, setHistorialCaja] = useState([]);
+    const [historialGlobal, setHistorialGlobal] = useState([]);
     
     const [showCajaModal, setShowCajaModal] = useState(false);
     const [tipoMovCaja, setTipoMovCaja] = useState('fondo'); 
@@ -84,10 +85,14 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         let queryCaja = supabase.from('movimientos_caja').select('*').gte('fecha', start).lte('fecha', end).order('fecha', { ascending: false });
         if (viewMode === 'sucursal') queryCaja = queryCaja.eq('sucursal_id', sucursalId);
 
+        let queryGlobal = supabase.from('movimientos_caja').select('*').eq('sucursal_id', sucursalId).order('fecha', { ascending: false }).limit(800);
+
         const { data: estadoCaja } = await supabase.from('cajas_estado').select('saldo_actual').eq('sucursal_id', sucursalId).single();
         if (estadoCaja) setSaldoCaja(parseFloat(estadoCaja.saldo_actual));
 
-        const [resVentas, resCaja] = await Promise.all([queryVentas, queryCaja]);
+        const [resVentas, resCaja, resGlobal] = await Promise.all([queryVentas, queryCaja, queryGlobal]);
+
+        if (resGlobal.data) setHistorialGlobal(resGlobal.data);
 
         let arrConsultas = []; let arrProductos = [];
         if (resVentas.data) {
@@ -96,21 +101,53 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 const sucursalNombre = v.sucursales?.nombre || 'General';
                 const pago = v.metodo_pago || 'Efectivo';
                 const totalVentaOriginal = parseFloat(v.total) || 0;
+                const esMixto = pago.toLowerCase().includes('mixto');
+
+                let consultaItems = [];
+                let importeConsultas = 0;
+                let numVisitasReales = 0; 
+                let mixtosConsultas = { efectivo: 0, tarjeta: 0, transferencia: 0 };
 
                 v.venta_detalles?.forEach(det => {
                     const cant = parseInt(det.cantidad);
                     const precio = parseFloat(det.precio_unitario);
                     const importeDetalle = cant * precio;
+                    const nombreArticulo = det.productos?.nombre || 'Art. Eliminado';
                     const esConsultaOficial = det.productos?.es_consulta === true; 
-                    const esMixto = pago.toLowerCase().includes('mixto');
-                    let valoresMixtos = { efectivo: 0, tarjeta: 0, transferencia: 0 };
                     
+                    let valoresMixtos = { efectivo: 0, tarjeta: 0, transferencia: 0 };
                     if (esMixto) valoresMixtos = extraerValoresMixtos(pago, importeDetalle, totalVentaOriginal);
 
-                    const registro = { folio: v.id, fecha: parseDBDate(v.fecha).toLocaleString(), sucursal: sucursalNombre, cliente: clienteNombre, articulo: det.productos?.nombre || 'Art. Eliminado', cantidad: cant, precio: precio, importe: importeDetalle, metodo_pago: pago, esMixto, valoresMixtos };
-                    if (esConsultaOficial) arrConsultas.push(registro);
-                    else arrProductos.push(registro);
+                    if (esConsultaOficial) {
+                        consultaItems.push(`${nombreArticulo} (x${cant})`);
+                        importeConsultas += importeDetalle;
+                        mixtosConsultas.efectivo += valoresMixtos.efectivo;
+                        mixtosConsultas.tarjeta += valoresMixtos.tarjeta;
+                        mixtosConsultas.transferencia += valoresMixtos.transferencia;
+
+                        if (nombreArticulo.toLowerCase().includes('consulta')) {
+                            numVisitasReales += cant;
+                        }
+
+                    } else {
+                        arrProductos.push({ folio: v.id, fecha: parseDBDate(v.fecha).toLocaleString(), sucursal: sucursalNombre, cliente: clienteNombre, articulo: nombreArticulo, cantidad: cant, precio: precio, importe: importeDetalle, metodo_pago: pago, esMixto, valoresMixtos });
+                    }
                 });
+
+                if (consultaItems.length > 0) {
+                    arrConsultas.push({
+                        folio: v.id, 
+                        fecha: parseDBDate(v.fecha).toLocaleString(), 
+                        sucursal: sucursalNombre, 
+                        cliente: clienteNombre, 
+                        articulo: consultaItems.join(' + '), 
+                        cantidad: numVisitasReales, 
+                        importe: importeConsultas, 
+                        metodo_pago: pago, 
+                        esMixto, 
+                        valoresMixtos: mixtosConsultas 
+                    });
+                }
             });
         }
 
@@ -156,6 +193,8 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     const productosFiltrados = applyFilters(listaProductos, filtersB);
     const cajaFiltrada = applyFilters(historialCaja, filtersCaja);
 
+    const totalCantidadConsultas = consultasFiltradas.reduce((acc, item) => acc + item.cantidad, 0);
+
     const desglosarVentas = (lista) => {
         const desglose = { total: 0, efectivo: 0, tarjeta: 0, transferencia: 0, otros: 0 };
         lista.forEach(item => {
@@ -177,7 +216,13 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     const breakdownTotal = { total: breakdownA.total + breakdownB.total, efectivo: breakdownA.efectivo + breakdownB.efectivo, tarjeta: breakdownA.tarjeta + breakdownB.tarjeta, transferencia: breakdownA.transferencia + breakdownB.transferencia };
 
     let cFondo = 0, cVentas = 0, cEntradas = 0, cSalidas = 0, cCortes = 0;
-    cajaFiltrada.forEach(m => {
+    
+    let movimientosTurnoVirtual = [];
+    const idxLastCorte = cajaFiltrada.findIndex(m => m.tipo === 'corte_caja');
+    if (idxLastCorte === -1) movimientosTurnoVirtual = cajaFiltrada;
+    else movimientosTurnoVirtual = cajaFiltrada.slice(0, idxLastCorte);
+
+    movimientosTurnoVirtual.forEach(m => {
         const amt = Math.abs(parseFloat(m.monto));
         if (m.tipo === 'venta_efectivo') cVentas += amt;
         else if (m.tipo === 'ingreso_manual') {
@@ -185,7 +230,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
             else cEntradas += amt;
         }
         else if (m.tipo === 'retiro_manual') cSalidas += amt;
-        else if (m.tipo === 'corte_caja') cCortes += amt; 
     });
     
     const registrarMovimientoCaja = async () => {
@@ -217,7 +261,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         if (error) alert('Error: ' + error.message);
         else {
             alert(t('corteExitoso') || 'Corte de caja exitoso. La caja está ahora en $0.00.');
-            imprimirTicketCorte(cFondo, cVentas, cEntradas, cSalidas, saldoCaja, new Date().toISOString(), cajaFiltrada.filter(m => m.tipo !== 'corte_caja'));
+            imprimirTicketCorte(cFondo, cVentas, cEntradas, cSalidas, saldoCaja, new Date().toISOString(), movimientosTurnoVirtual);
             fetchFinanzas(); 
         }
     };
@@ -241,7 +285,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
             </head><body>
                 <div class="center bold title">ACUPUNTURA H.K.</div>
                 <div class="center subtitle">${t('sucursalEmisora') || 'Sucursal'} ${branch.toUpperCase()}</div>
-                <div class="center bold" style="font-size: 16px;">${t('corteCajaTurno') || 'CORTE DE CAJA Y AUDITORÍA'}</div>
+                <div class="center bold" style="font-size: 16px;">${t('ticketCorteAuditoria') || 'CORTE DE CAJA Y AUDITORÍA'}</div>
                 <div class="line"></div>
                 <div class="row"><span>${t('fecha') || 'Fecha'}:</span><span>${parseDBDate(fechaStr).toLocaleDateString()}</span></div>
                 <div class="row"><span>${t('hora') || 'Hora'}:</span><span>${parseDBDate(fechaStr).toLocaleTimeString()}</span></div>
@@ -252,6 +296,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 <div class="row"><span>${t('salidas') || 'Salidas/Retiros'}:</span><span>-$${parseFloat(salidas).toFixed(2)}</span></div>
                 <div class="line"></div>
                 <div class="row bold" style="font-size: 18px;"><span>${t('totalAuditado') || 'TOTAL AUDITADO'}:</span><span>$${parseFloat(total).toFixed(2)}</span></div>
+                <div class="center" style="font-size: 10px; margin-top: 5px;">(Efectivo retirado físicamente del cajón)</div>
                 <div class="line"></div>
                 <div class="center" style="margin-top: 50px;">________________________</div>
                 <div class="center">${t('firmaConformidad') || 'Firma de Conformidad'}</div>
@@ -265,69 +310,73 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         try {
             const parts = movCorte.motivo.split('|');
             const data = { fondo: parts[1].split(':')[1], ventas: parts[2].split(':')[1], entradas: parts[3].split(':')[1], salidas: parts[4].split(':')[1], total: parts[5].split(':')[1], fecha: movCorte.fecha, movimientos: [] };
-            imprimirTicketCorte(data.fondo, data.ventas, data.entradas, data.salidas, data.total, data.fecha, data.movimientos);
+            
+            const cutTime = new Date(movCorte.fecha).getTime();
+            const previousCuts = historialGlobal.filter(m => m.tipo === 'corte_caja' && new Date(m.fecha).getTime() < cutTime);
+            const lastCutTime = previousCuts.length > 0 ? new Date(previousCuts[0].fecha).getTime() : 0;
+            
+            const shiftMovs = historialGlobal.filter(m => {
+                const t = new Date(m.fecha).getTime();
+                return t > lastCutTime && t < cutTime && m.tipo !== 'corte_caja';
+            });
+            
+            imprimirTicketCorte(data.fondo, data.ventas, data.entradas, data.salidas, data.total, data.fecha, shiftMovs);
         } catch (e) { alert("Ticket con formato antiguo no soportado."); }
     };
 
-    // 🚀 EXPORTACIÓN EXCEL PREMIUM ESTILIZADA (HTML TO XLS)
     const exportarExcelPremium = () => {
-        if (consultasFiltradas.length === 0 && productosFiltrados.length === 0 && cajaFiltrada.length === 0) return alert(t('noDatosExportar') || 'No hay datos para exportar.');
+        if (consultasFiltradas.length === 0 && productosFiltrados.length === 0) return alert(t('noDatosExportar') || 'No hay datos para exportar.');
         
         let htmlTable = `
             <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-            <head><meta charset="UTF-8"><style>table { border-collapse: collapse; width: 100%; } th, td { border: 1px solid #dddddd; padding: 8px; text-align: left; } th { background-color: #f2f2f2; font-weight: bold; } .header { font-size: 18px; font-weight: bold; color: #d32f2f; background-color: #ffeeee; text-align: center; } .summary-title { font-weight: bold; background-color: #e0f7fa; } .summary-val { font-weight: bold; color: #00695c; text-align: right; } </style></head>
+            <head><meta charset="UTF-8"><style>table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; } th, td { border: 1px solid #dddddd; padding: 10px; text-align: left; } th { background-color: #f2f2f2; font-weight: bold; } .header { font-size: 20px; font-weight: bold; color: #ffffff; background-color: #1e293b; text-align: center; } .summary-title { font-weight: bold; background-color: #e0f7fa; color: #00695c; } .summary-val { font-weight: bold; color: #00695c; text-align: right; } </style></head>
             <body>
                 <table>
                     <tr><td colspan="8" class="header">REPORTE FINANCIERO - ACUPUNTURA HK (${branch.toUpperCase()})</td></tr>
-                    <tr><td colspan="8" style="text-align:center;">Período: ${dateMode === 'diario' ? singleDate : startDate + ' al ' + endDate}</td></tr>
+                    <tr><td colspan="8" style="text-align:center; font-weight: bold; background-color: #f8fafc;">Período: ${dateMode === 'diario' ? singleDate : startDate + ' al ' + endDate}</td></tr>
                     <tr><td colspan="8"></td></tr>
                     
                     <!-- RESUMEN GLOBAL -->
-                    <tr><td colspan="8" style="font-weight:bold; background-color:#333; color:white; text-align:center;">RESUMEN GENERAL</td></tr>
-                    <tr><td colspan="4" class="summary-title">GRAN TOTAL VENTAS</td><td colspan="4" class="summary-val">$${breakdownTotal.total.toFixed(2)}</td></tr>
+                    <tr><td colspan="8" style="font-weight:bold; background-color:#333; color:white; text-align:center; font-size: 16px;">RESUMEN GENERAL</td></tr>
                     <tr><td colspan="4" class="summary-title">TOTAL EFECTIVO</td><td colspan="4" class="summary-val">$${breakdownTotal.efectivo.toFixed(2)}</td></tr>
                     <tr><td colspan="4" class="summary-title">TOTAL TARJETAS</td><td colspan="4" class="summary-val">$${breakdownTotal.tarjeta.toFixed(2)}</td></tr>
                     <tr><td colspan="4" class="summary-title">TOTAL TRANSFERENCIAS</td><td colspan="4" class="summary-val">$${breakdownTotal.transferencia.toFixed(2)}</td></tr>
+                    <tr><td colspan="4" style="font-weight:bold; background-color:#0f172a; color:white;">GRAN TOTAL VENTAS</td><td colspan="4" style="font-weight:bold; background-color:#0f172a; color:#10b981; text-align:right; font-size:16px;">$${breakdownTotal.total.toFixed(2)}</td></tr>
                     <tr><td colspan="8"></td></tr>
 
-                    <!-- EMPRESA A: CLÍNICA -->
-                    <tr><td colspan="8" style="font-weight:bold; background-color:#0288d1; color:white; text-align:center;">EMPRESA A (CLÍNICA)</td></tr>
-                    <tr><th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Cliente</th><th>Servicio Clínico</th><th>Cant</th><th>Pago</th><th>Importe</th></tr>
+                    <!-- EMPRESA A: ACUPUNTURA -->
+                    <tr><td colspan="8" style="font-weight:bold; background-color:#0288d1; color:white; text-align:center; font-size: 16px;">${(t('acupuntura') || 'ACUPUNTURA').toUpperCase()}</td></tr>
+                    <tr><th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Cliente</th><th>Servicio Clínico</th><th>Visitas</th><th>Pago</th><th>Importe</th></tr>
         `;
-        consultasFiltradas.forEach(c => { htmlTable += `<tr><td>#${c.folio.toString().padStart(5, '0')}</td><td>${c.fecha}</td><td>${c.sucursal}</td><td>${c.cliente}</td><td>${c.articulo}</td><td>${c.cantidad}</td><td>${c.metodo_pago.toUpperCase()}</td><td>$${c.importe.toFixed(2)}</td></tr>`; });
+        consultasFiltradas.forEach(c => { htmlTable += `<tr><td>#${c.folio.toString().padStart(5, '0')}</td><td>${c.fecha}</td><td>${c.sucursal}</td><td>${c.cliente}</td><td>${c.articulo}</td><td style="text-align:center; font-weight:bold; color:#0288d1;">${c.cantidad}</td><td>${c.metodo_pago.toUpperCase()}</td><td>$${c.importe.toFixed(2)}</td></tr>`; });
         htmlTable += `
-                    <tr><td colspan="6" style="text-align:right; font-weight:bold;">Total Clínica:</td><td colspan="2" style="font-weight:bold;">$${breakdownA.total.toFixed(2)}</td></tr>
+                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalEfectivo') || 'Subtotal Efectivo'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownA.efectivo.toFixed(2)}</td></tr>
+                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalTarjeta') || 'Subtotal Tarjeta'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownA.tarjeta.toFixed(2)}</td></tr>
+                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalTransferencia') || 'Subtotal Transf.'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownA.transferencia.toFixed(2)}</td></tr>
+                    <tr><td colspan="6" style="text-align:right; font-weight:bold; font-size:14px; color:#0288d1;">TOTAL ${(t('acupuntura') || 'ACUPUNTURA').toUpperCase()} (${totalCantidadConsultas} Visitas):</td><td colspan="2" style="font-weight:bold; font-size:14px; color:#0288d1; text-align:right;">$${breakdownA.total.toFixed(2)}</td></tr>
                     <tr><td colspan="8"></td></tr>
                     
-                    <!-- EMPRESA B: EXTRAS -->
-                    <tr><td colspan="8" style="font-weight:bold; background-color:#f57c00; color:white; text-align:center;">EMPRESA B (PRODUCTOS Y EXTRAS)</td></tr>
-                    <tr><th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Cliente</th><th>Producto Extra</th><th>Cant</th><th>Pago</th><th>Importe</th></tr>
+                    <!-- EMPRESA B: HUANQIU -->
+                    <tr><td colspan="8" style="font-weight:bold; background-color:#f57c00; color:white; text-align:center; font-size: 16px;">${(t('huanqiu') || 'HUANQIU').toUpperCase()}</td></tr>
+                    <tr><th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Cliente</th><th>Producto / Extra</th><th>Cant</th><th>Pago</th><th>Importe</th></tr>
         `;
-        productosFiltrados.forEach(p => { htmlTable += `<tr><td>#${p.folio.toString().padStart(5, '0')}</td><td>${p.fecha}</td><td>${p.sucursal}</td><td>${p.cliente}</td><td>${p.articulo}</td><td>${p.cantidad}</td><td>${p.metodo_pago.toUpperCase()}</td><td>$${p.importe.toFixed(2)}</td></tr>`; });
+        // 🚀 CORRECCIÓN EXACTA APLICADA AQUÍ: Se cambió c.cantidad por p.cantidad
+        productosFiltrados.forEach(p => { htmlTable += `<tr><td>#${p.folio.toString().padStart(5, '0')}</td><td>${p.fecha}</td><td>${p.sucursal}</td><td>${p.cliente}</td><td>${p.articulo}</td><td style="text-align:center; font-weight:bold; color:#f57c00;">${p.cantidad}</td><td>${p.metodo_pago.toUpperCase()}</td><td>$${p.importe.toFixed(2)}</td></tr>`; });
         htmlTable += `
-                    <tr><td colspan="6" style="text-align:right; font-weight:bold;">Total Extras:</td><td colspan="2" style="font-weight:bold;">$${breakdownB.total.toFixed(2)}</td></tr>
-                    <tr><td colspan="8"></td></tr>
-                    
-                    <!-- AUDITORÍA DE CAJA -->
-                    <tr><td colspan="8" style="font-weight:bold; background-color:#2e7d32; color:white; text-align:center;">AUDITORÍA DE CAJA (MOVIMIENTOS)</td></tr>
-                    <tr><th colspan="2">Fecha y Hora</th><th colspan="2">Movimiento</th><th colspan="3">Motivo / Detalles</th><th>Importe</th></tr>
+                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalEfectivo') || 'Subtotal Efectivo'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownB.efectivo.toFixed(2)}</td></tr>
+                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalTarjeta') || 'Subtotal Tarjeta'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownB.tarjeta.toFixed(2)}</td></tr>
+                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalTransferencia') || 'Subtotal Transf.'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownB.transferencia.toFixed(2)}</td></tr>
+                    <tr><td colspan="6" style="text-align:right; font-weight:bold; font-size:14px; color:#f57c00;">TOTAL ${(t('huanqiu') || 'HUANQIU').toUpperCase()}:</td><td colspan="2" style="font-weight:bold; font-size:14px; color:#f57c00; text-align:right;">$${breakdownB.total.toFixed(2)}</td></tr>
+                </table></body></html>
         `;
-        cajaFiltrada.forEach(m => {
-            const isNegative = m.tipo === 'retiro_manual' || m.tipo === 'corte_caja';
-            const sign = isNegative ? '-' : '+';
-            const desc = m.tipo === 'corte_caja' ? 'Cierre de Turno y Auditoría' : m.motivo;
-            htmlTable += `<tr><td colspan="2">${parseDBDate(m.fecha).toLocaleString()}</td><td colspan="2">${m.tipo.replace('_', ' ').toUpperCase()}</td><td colspan="3">${desc}</td><td style="color:${isNegative?'red':'green'};">${sign}$${Math.abs(parseFloat(m.monto)).toFixed(2)}</td></tr>`;
-        });
-        htmlTable += `</table></body></html>`;
 
         const blob = new Blob([htmlTable], { type: 'application/vnd.ms-excel' });
         const link = document.createElement("a");
         link.setAttribute("href", URL.createObjectURL(blob));
-        link.setAttribute("download", `Reporte_Financiero_Premium_${dateMode === 'diario' ? singleDate : startDate}.xls`);
+        link.setAttribute("download", `Reporte_Financiero_AcupunturaHK_${dateMode === 'diario' ? singleDate : startDate}.xls`);
         document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
-    // 🚀 REPORTE PDF CORPORATIVO
     const generarReportePDF = () => {
         const printWindow = window.open('', '_blank');
         const periodStr = dateMode === 'diario' ? singleDate : `${startDate} al ${endDate}`;
@@ -338,65 +387,68 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 body { font-family: 'Segoe UI', Arial, sans-serif; color: #333; margin: 0; padding: 20px; }
                 .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #d32f2f; padding-bottom: 10px; }
                 .title { font-size: 24px; font-weight: bold; color: #d32f2f; margin: 0; }
-                .subtitle { font-size: 14px; color: #666; }
+                .subtitle { font-size: 14px; color: #666; margin-top: 5px; }
                 .summary-grid { display: flex; gap: 15px; margin-bottom: 30px; }
                 .card { flex: 1; border: 1px solid #ddd; border-radius: 8px; padding: 15px; background: #f9f9f9; }
-                .card h3 { margin: 0 0 10px 0; font-size: 12px; color: #555; text-transform: uppercase; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-                .card .val { font-size: 22px; font-weight: bold; color: #111; margin-bottom: 10px; }
-                .card .detail { font-size: 11px; color: #777; display: flex; justify-content: space-between; margin-bottom: 2px; }
+                .card h3 { margin: 0 0 10px 0; font-size: 13px; color: #333; text-transform: uppercase; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+                .card .val { font-size: 24px; font-weight: bold; color: #111; margin-bottom: 10px; }
+                .card .detail { font-size: 11px; color: #555; display: flex; justify-content: space-between; margin-bottom: 3px; }
                 table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 11px; }
-                th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
-                th { background-color: #f1f1f1; font-weight: bold; color: #333; }
-                .section-title { font-size: 16px; color: #d32f2f; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; page-break-after: avoid; }
+                th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+                th { background-color: #e0e0e0; font-weight: bold; color: #111; }
+                .section-title { font-size: 16px; color: #d32f2f; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px; page-break-after: avoid; }
             </style>
             </head><body>
                 <div class="header">
                     <h1 class="title">ACUPUNTURA H.K. - ${t('reporteFinancieroDoc') || 'Reporte Financiero'}</h1>
-                    <div class="subtitle">Sucursal: ${branch.toUpperCase()} | Período: ${periodStr}</div>
+                    <div class="subtitle">Sucursal: ${branch.toUpperCase()} &nbsp;|&nbsp; Período: ${periodStr}</div>
                 </div>
 
                 <div class="summary-grid">
-                    <div class="card" style="border-top: 3px solid #10b981;">
+                    <div class="card" style="border-top: 4px solid #10b981; background: #f0fdf4;">
                         <h3>Caja Física (Flujo)</h3>
-                        <div class="val">$${saldoCaja.toFixed(2)}</div>
+                        <div class="val" style="color:#10b981;">$${saldoCaja.toFixed(2)}</div>
                         <div class="detail"><span>Fondo:</span> <span>$${cFondo.toFixed(2)}</span></div>
                         <div class="detail"><span>Ventas(Efe):</span> <span>+$${cVentas.toFixed(2)}</span></div>
                         <div class="detail"><span>Entradas:</span> <span>+$${cEntradas.toFixed(2)}</span></div>
                         <div class="detail"><span>Salidas:</span> <span>-$${cSalidas.toFixed(2)}</span></div>
                     </div>
-                    <div class="card" style="border-top: 3px solid #00b0ff;">
-                        <h3>Empresa A (Clínica)</h3>
+                    <div class="card" style="border-top: 4px solid #00b0ff; background: #f0f9ff;">
+                        <h3>${t('acupuntura') || 'ACUPUNTURA'}</h3>
                         <div class="val">$${breakdownA.total.toFixed(2)}</div>
+                        <div class="detail" style="color:#0288d1; font-weight:bold; margin-bottom:6px; border-bottom: 1px dashed #ccc; padding-bottom:4px;"><span>${t('totalConsultasRealizadas') || 'Visitas'}:</span> <span>${totalCantidadConsultas}</span></div>
                         <div class="detail"><span>Efectivo:</span> <span>$${breakdownA.efectivo.toFixed(2)}</span></div>
                         <div class="detail"><span>Tarjetas:</span> <span>$${breakdownA.tarjeta.toFixed(2)}</span></div>
                         <div class="detail"><span>Transf:</span> <span>$${breakdownA.transferencia.toFixed(2)}</span></div>
                     </div>
-                    <div class="card" style="border-top: 3px solid #ffb300;">
-                        <h3>Empresa B (Extras)</h3>
+                    <div class="card" style="border-top: 4px solid #ffb300; background: #fffbf0;">
+                        <h3>${t('huanqiu') || 'HUANQIU'}</h3>
                         <div class="val">$${breakdownB.total.toFixed(2)}</div>
+                        <div class="detail" style="margin-bottom:6px; border-bottom: 1px dashed transparent; padding-bottom:4px;">&nbsp;</div>
                         <div class="detail"><span>Efectivo:</span> <span>$${breakdownB.efectivo.toFixed(2)}</span></div>
                         <div class="detail"><span>Tarjetas:</span> <span>$${breakdownB.tarjeta.toFixed(2)}</span></div>
                         <div class="detail"><span>Transf:</span> <span>$${breakdownB.transferencia.toFixed(2)}</span></div>
                     </div>
-                    <div class="card" style="border-top: 3px solid #d32f2f;">
+                    <div class="card" style="border-top: 4px solid #d32f2f; background: #fff5f5;">
                         <h3>Gran Total Ventas</h3>
-                        <div class="val">$${breakdownTotal.total.toFixed(2)}</div>
+                        <div class="val" style="color:#d32f2f;">$${breakdownTotal.total.toFixed(2)}</div>
+                        <div class="detail" style="margin-bottom:6px; border-bottom: 1px dashed transparent; padding-bottom:4px;">&nbsp;</div>
                         <div class="detail"><span>Efectivo:</span> <span>$${breakdownTotal.efectivo.toFixed(2)}</span></div>
                         <div class="detail"><span>Tarjetas:</span> <span>$${breakdownTotal.tarjeta.toFixed(2)}</span></div>
                         <div class="detail"><span>Transf:</span> <span>$${breakdownTotal.transferencia.toFixed(2)}</span></div>
                     </div>
                 </div>
 
-                <h2 class="section-title">Detalle de Consultas Clínicas</h2>
+                <h2 class="section-title">Detalle de Consultas (${t('acupuntura') || 'Acupuntura'})</h2>
                 <table>
-                    <thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Servicio Clínico</th><th>Cant</th><th>Pago</th><th>Importe</th></tr></thead>
-                    <tbody>${consultasFiltradas.map(c => `<tr><td>#${c.folio.toString().padStart(5, '0')}</td><td>${c.fecha}</td><td>${c.cliente}</td><td>${c.articulo}</td><td>${c.cantidad}</td><td>${c.metodo_pago.toUpperCase()}</td><td>$${c.importe.toFixed(2)}</td></tr>`).join('')}</tbody>
+                    <thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Servicios Agrupados</th><th>Visitas</th><th>Pago</th><th>Importe</th></tr></thead>
+                    <tbody>${consultasFiltradas.map(c => `<tr><td>#${c.folio.toString().padStart(5, '0')}</td><td>${c.fecha}</td><td>${c.cliente}</td><td>${c.articulo}</td><td style="text-align:center; font-weight:bold; color:#0288d1;">${c.cantidad}</td><td>${c.metodo_pago.toUpperCase()}</td><td>$${c.importe.toFixed(2)}</td></tr>`).join('')}</tbody>
                 </table>
 
-                <h2 class="section-title">Detalle de Productos y Extras</h2>
+                <h2 class="section-title">Detalle de Productos y Extras (${t('huanqiu') || 'Huanqiu'})</h2>
                 <table>
                     <thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Producto Extra</th><th>Cant</th><th>Pago</th><th>Importe</th></tr></thead>
-                    <tbody>${productosFiltrados.map(p => `<tr><td>#${p.folio.toString().padStart(5, '0')}</td><td>${p.fecha}</td><td>${p.cliente}</td><td>${p.articulo}</td><td>${p.cantidad}</td><td>${p.metodo_pago.toUpperCase()}</td><td>$${p.importe.toFixed(2)}</td></tr>`).join('')}</tbody>
+                    <tbody>${productosFiltrados.map(p => `<tr><td>#${p.folio.toString().padStart(5, '0')}</td><td>${p.fecha}</td><td>${p.cliente}</td><td>${p.articulo}</td><td style="text-align:center; font-weight:bold; color:#f57c00;">${p.cantidad}</td><td>${p.metodo_pago.toUpperCase()}</td><td>$${p.importe.toFixed(2)}</td></tr>`).join('')}</tbody>
                 </table>
 
                 <h2 class="section-title">Auditoría de Movimientos de Caja</h2>
@@ -553,11 +605,16 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                             </div>
                         </div>
 
-                        {/* 2. CLÍNICA (Azul) */}
-                        <div className="dash-card-premium animate-slide-up" style={{ '--card-color': '#00b0ff', animationDelay: '0.2s' }}>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px'}}>
-                                <div style={{background: 'rgba(0, 176, 255, 0.1)', padding: '10px', borderRadius: '10px'}}><i className="fa-solid fa-user-doctor" style={{fontSize: '1.2rem', color: '#00b0ff'}}></i></div>
-                                <span style={{color:'var(--text-muted)', fontSize:'0.85rem', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('clinicaOficial') || 'Clínica Oficial'}</span>
+                        {/* 2. ACUPUNTURA (Azul) */}
+                        <div className="dash-card-premium animate-slide-up" style={{ '--card-color': '#0288d1', animationDelay: '0.2s' }}>
+                            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px'}}>
+                                <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                    <div style={{background: 'rgba(2, 136, 209, 0.1)', padding: '10px', borderRadius: '10px'}}><i className="fa-solid fa-user-doctor" style={{fontSize: '1.2rem', color: '#0288d1'}}></i></div>
+                                    <span style={{color:'var(--text-muted)', fontSize:'0.85rem', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('acupuntura') || 'Acupuntura'}</span>
+                                </div>
+                                <div style={{background: 'rgba(2, 136, 209, 0.1)', border: '1px solid rgba(2, 136, 209, 0.3)', padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold', color: '#0288d1', display: 'flex', alignItems: 'center'}} title="Total de visitas / pacientes">
+                                    <i className="fa-solid fa-users" style={{marginRight: '6px'}}></i> {totalCantidadConsultas} {t('totalConsultasRealizadas') || 'Visitas'}
+                                </div>
                             </div>
                             <span style={{fontSize: '2.2rem', fontWeight: '900', display:'block', color: 'var(--text-main)', marginBottom: '15px'}}>${breakdownA.total.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                             <div className="breakdown-section">
@@ -567,11 +624,11 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                             </div>
                         </div>
 
-                        {/* 3. EXTRAS (Ambar) */}
-                        <div className="dash-card-premium animate-slide-up" style={{ '--card-color': '#ffb300', animationDelay: '0.3s' }}>
+                        {/* 3. HUANQIU (Ambar) */}
+                        <div className="dash-card-premium animate-slide-up" style={{ '--card-color': '#f57c00', animationDelay: '0.3s' }}>
                             <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px'}}>
-                                <div style={{background: 'rgba(255, 179, 0, 0.1)', padding: '10px', borderRadius: '10px'}}><i className="fa-solid fa-box-open" style={{fontSize: '1.2rem', color: '#ffb300'}}></i></div>
-                                <span style={{color:'var(--text-muted)', fontSize:'0.85rem', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('extrasProd') || 'Extras / Prod.'}</span>
+                                <div style={{background: 'rgba(245, 124, 0, 0.1)', padding: '10px', borderRadius: '10px'}}><i className="fa-solid fa-box-open" style={{fontSize: '1.2rem', color: '#f57c00'}}></i></div>
+                                <span style={{color:'var(--text-muted)', fontSize:'0.85rem', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('huanqiu') || 'Huanqiu'}</span>
                             </div>
                             <span style={{fontSize: '2.2rem', fontWeight: '900', display:'block', color: 'var(--text-main)', marginBottom: '15px'}}>${breakdownB.total.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                             <div className="breakdown-section">
@@ -582,12 +639,12 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         </div>
 
                         {/* 4. GRAN TOTAL (Verde) */}
-                        <div className="dash-card-premium animate-slide-up" style={{ '--card-color': 'var(--success)', animationDelay: '0.4s' }}>
+                        <div className="dash-card-premium animate-slide-up" style={{ '--card-color': '#10b981', animationDelay: '0.4s' }}>
                             <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px'}}>
-                                <div style={{background: 'rgba(46, 125, 50, 0.1)', padding: '10px', borderRadius: '10px'}}><i className="fa-solid fa-sack-dollar" style={{fontSize: '1.2rem', color: 'var(--success)'}}></i></div>
+                                <div style={{background: 'rgba(16, 185, 129, 0.1)', padding: '10px', borderRadius: '10px'}}><i className="fa-solid fa-sack-dollar" style={{fontSize: '1.2rem', color: '#10b981'}}></i></div>
                                 <span style={{color:'var(--text-muted)', fontSize:'0.85rem', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('granTotalVentas') || 'Gran Total Ventas'}</span>
                             </div>
-                            <span style={{fontSize: '2.2rem', fontWeight: '900', display:'block', color: 'var(--success)', marginBottom: '15px'}}>${breakdownTotal.total.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                            <span style={{fontSize: '2.2rem', fontWeight: '900', display:'block', color: '#10b981', marginBottom: '15px'}}>${breakdownTotal.total.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                             <div className="breakdown-section">
                                 <div><span style={{color: 'var(--text-main)'}}>{t('efectivoTotal') || 'Efectivo Total'}</span> <strong style={{color: 'var(--text-main)'}}>${breakdownTotal.efectivo.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
                                 <div><span style={{color: 'var(--text-main)'}}>{t('tarjetaTotal') || 'Tarjetas Total'}</span> <strong style={{color: 'var(--text-main)'}}>${breakdownTotal.tarjeta.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong></div>
@@ -598,15 +655,15 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
 
                     {/* 🚀 PESTAÑAS MODERNAS (TABS) */}
                     <div style={{display: 'flex', gap: '30px', borderBottom: '2px solid var(--border-color)', marginTop: '10px'}}>
-                        <button onClick={() => setActiveTab('clinica')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'clinica' ? '3px solid #00b0ff' : '3px solid transparent', color: activeTab === 'clinica' ? '#00b0ff' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> {t('tabConsultas') || 'Consultas'} ({consultasFiltradas.length})</button>
-                        <button onClick={() => setActiveTab('extras')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'extras' ? '3px solid #ffb300' : '3px solid transparent', color: activeTab === 'extras' ? '#ffb300' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s'}}><i className="fa-solid fa-box-open" style={{marginRight: '8px'}}></i> {t('tabExtras') || 'Prod. y Extras'} ({productosFiltrados.length})</button>
+                        <button onClick={() => setActiveTab('clinica')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'clinica' ? '3px solid #0288d1' : '3px solid transparent', color: activeTab === 'clinica' ? '#0288d1' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> {t('consultasAcupuntura') || 'Consultas (Acupuntura)'} ({consultasFiltradas.length})</button>
+                        <button onClick={() => setActiveTab('extras')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'extras' ? '3px solid #f57c00' : '3px solid transparent', color: activeTab === 'extras' ? '#f57c00' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s'}}><i className="fa-solid fa-box-open" style={{marginRight: '8px'}}></i> {t('prodHuanqiu') || 'Prod. y Extras (Huanqiu)'} ({productosFiltrados.length})</button>
                         <button onClick={() => setActiveTab('caja')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'caja' ? '3px solid #10b981' : '3px solid transparent', color: activeTab === 'caja' ? '#10b981' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s'}}><i className="fa-solid fa-cash-register" style={{marginRight: '8px'}}></i> {t('tabAuditoria') || 'Auditoría de Caja'} ({cajaFiltrada.length})</button>
                     </div>
 
                     {/* CONTENIDO DE LAS PESTAÑAS */}
                     <div className="panel" style={{padding: '0', overflow: 'hidden', borderRadius: '0 0 16px 16px', borderTop: 'none', boxShadow: 'var(--shadow-sm)'}}>
                         
-                        {/* TAB 1: CLÍNICA */}
+                        {/* TAB 1: CLÍNICA (ACUPUNTURA) */}
                         {activeTab === 'clinica' && (
                             <div className="animate-fade-in" style={{maxHeight: '500px', overflowY: 'auto'}}>
                                 <table className="data-table">
@@ -616,8 +673,8 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                             {renderHeader(t('fecha') || 'Fecha', 'fecha', listaConsultas, filtersA, setFiltersA)}
                                             {renderHeader(t('sucursalEmisora') || 'Sucursal', 'sucursal', listaConsultas, filtersA, setFiltersA, viewMode === 'global')}
                                             {renderHeader(t('clientes') || 'Cliente', 'cliente', listaConsultas, filtersA, setFiltersA)}
-                                            {renderHeader(t('servicioClinico') || 'Servicio Clínico', 'articulo', listaConsultas, filtersA, setFiltersA)}
-                                            {renderHeader(t('cantidadAbrev') || 'Cant.', 'cantidad', listaConsultas, filtersA, setFiltersA)}
+                                            {renderHeader(t('servicioClinico') || 'Servicios Agrupados', 'articulo', listaConsultas, filtersA, setFiltersA)}
+                                            {renderHeader(t('cantidadAbrev') || 'Visitas', 'cantidad', listaConsultas, filtersA, setFiltersA)}
                                             {renderHeader(t('metPago') || 'Pago', 'metodo_pago', listaConsultas, filtersA, setFiltersA)}
                                             {renderHeader(t('importe') || 'Importe', 'importe', listaConsultas, filtersA, setFiltersA)}
                                         </tr>
@@ -629,7 +686,8 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                                 <td style={{fontSize: '0.85rem', color: 'var(--text-main)'}}>{item.fecha}</td>
                                                 {viewMode === 'global' && <td style={{color: 'var(--text-main)'}}>{item.sucursal}</td>}
                                                 <td><strong style={{color: 'var(--text-main)'}}>{item.cliente}</strong></td>
-                                                <td style={{color: '#00b0ff', fontWeight: 'bold'}}>{item.articulo} <span style={{color: 'var(--text-muted)', fontSize: '0.8rem'}}>x{item.cantidad}</span></td>
+                                                <td style={{color: '#0288d1', fontWeight: 'bold', fontSize: '0.85rem'}}>{item.articulo}</td>
+                                                <td style={{textAlign: 'center'}}><span style={{background: 'rgba(2, 136, 209, 0.1)', color: '#0288d1', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold'}}>{item.cantidad}</span></td>
                                                 <td><span style={{fontSize: '0.75rem', background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 10px', borderRadius: '20px', fontWeight: '600'}}>{item.metodo_pago.toUpperCase()}</span></td>
                                                 <td style={{fontWeight: '900', color: 'var(--text-main)', fontSize: '1.1rem'}}>${item.importe.toFixed(2)}</td>
                                             </tr>
@@ -640,7 +698,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                             </div>
                         )}
 
-                        {/* TAB 2: EXTRAS */}
+                        {/* TAB 2: EXTRAS (HUANQIU) */}
                         {activeTab === 'extras' && (
                             <div className="animate-fade-in" style={{maxHeight: '500px', overflowY: 'auto'}}>
                                 <table className="data-table">
@@ -663,7 +721,8 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                                 <td style={{fontSize: '0.85rem', color: 'var(--text-main)'}}>{item.fecha}</td>
                                                 {viewMode === 'global' && <td style={{color: 'var(--text-main)'}}>{item.sucursal}</td>}
                                                 <td><strong style={{color: 'var(--text-main)'}}>{item.cliente}</strong></td>
-                                                <td style={{color: '#ffb300', fontWeight: 'bold'}}>{item.articulo} <span style={{color: 'var(--text-muted)', fontSize: '0.8rem'}}>x{item.cantidad}</span></td>
+                                                <td style={{color: '#f57c00', fontWeight: 'bold'}}>{item.articulo}</td>
+                                                <td style={{textAlign: 'center'}}><span style={{background: 'rgba(245, 124, 0, 0.1)', color: '#f57c00', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold'}}>{item.cantidad}</span></td>
                                                 <td><span style={{fontSize: '0.75rem', background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 10px', borderRadius: '20px', fontWeight: '600'}}>{item.metodo_pago.toUpperCase()}</span></td>
                                                 <td style={{fontWeight: '900', color: 'var(--text-main)', fontSize: '1.1rem'}}>${item.importe.toFixed(2)}</td>
                                             </tr>
@@ -712,7 +771,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                                 </td>
                                             </tr>
                                         ))}
-                                        {cajaFiltrada.length === 0 && <tr><td colSpan="5" style={{textAlign: 'center', padding: '60px', color: 'var(--text-muted)'}}><i className="fa-solid fa-cash-register fa-3x" style={{marginBottom: '15px', opacity: 0.3, display: 'block'}}></i> {t('sinDatosCaja') || 'No hay movimientos de caja.'}</td></tr>}
+                                        {cajaFiltrada.length === 0 && <tr><td colSpan="5" style={{textAlign: 'center', padding: '60px', color: 'var(--text-muted)'}}><i className="fa-solid fa-cash-register fa-3x" style={{marginBottom: '15px', opacity: 0.3, display: 'block'}}></i> {t('sinDatosCaja') || 'No hay movimientos de caja registrados.'}</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
@@ -764,6 +823,8 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                             {tipoMovCaja === 'ingreso' && <><i className="fa-solid fa-arrow-down-to-line"></i> {t('ingresoCajaTitulo') || 'Ingreso de Efectivo'}</>}
                             {tipoMovCaja === 'retiro' && <><i className="fa-solid fa-arrow-up-from-bracket"></i> {t('retiroCajaTitulo') || 'Retiro de Efectivo'}</>}
                         </h3>
+                        
+                        {tipoMovCaja === 'ingreso' && <p style={{textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '25px'}}>💡 {t('tipFondoCaja') || "Tip: Si es para arrancar el turno, incluye la palabra 'Fondo' en el motivo."}</p>}
                         
                         <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('montoEfectivoDesc') || 'Monto en Efectivo ($)'}</label>
                         <input type="number" value={montoCaja} onChange={(e) => setMontoCaja(e.target.value)} placeholder="0.00" autoFocus style={{width:'100%', padding:'20px', marginBottom:'25px', background:'var(--bg-main)', color:'var(--text-main)', border: `2px solid ${tipoMovCaja === 'retiro' ? '#ea580c' : (tipoMovCaja === 'fondo' ? '#10b981' : 'var(--accent)')}`, borderRadius: '12px', fontSize: '2rem', fontWeight: '900', textAlign: 'center', outline: 'none'}} />
