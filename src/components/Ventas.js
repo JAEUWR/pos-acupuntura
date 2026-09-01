@@ -11,16 +11,20 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const [productosDB, setProductosDB] = useState([]);
     const [clientesDB, setClientesDB] = useState([]);
     const [promocionesDB, setPromocionesDB] = useState([]);
+    const [doctoresDB, setDoctoresDB] = useState([]); 
     
     const [selectedClient, setSelectedClient] = useState('');
-    const [metodoPago, setMetodoPago] = useState('efectivo'); // efectivo | tarjeta | transferencia | mixto
+    const [metodoPago, setMetodoPago] = useState('efectivo'); 
     const [montoRecibido, setMontoRecibido] = useState('');
     
     const [folioTransferencia, setFolioTransferencia] = useState('');
     const [tipoTarjeta, setTipoTarjeta] = useState('debito');
-    
-    // Estados para Pago Mixto
     const [montosMixtos, setMontosMixtos] = useState({ efectivo: '', tarjeta: '', transferencia: '' });
+
+    // ESTADOS PARA CHECKOUT BLINDADO
+    const [saleNotes, setSaleNotes] = useState('');
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [selectedDoctor, setSelectedDoctor] = useState('');
 
     const [historialHoy, setHistorialHoy] = useState([]);
     const scannerInputRef = useRef(null);
@@ -31,7 +35,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const [newClientName, setNewClientName] = useState('');
     const [newClientPhone, setNewClientPhone] = useState('');
 
-    // 🚀 NUEVO MODAL: Buscador de Pacientes (Reemplaza al Dropdown que se cortaba)
     const [showClientSearchModal, setShowClientSearchModal] = useState(false);
     const [clientSearchTerm, setClientSearchTerm] = useState('');
 
@@ -39,19 +42,20 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const sucursalId = branchIdMap[branch] || 1;
 
     const fetchDatos = async () => {
+        // 🚀 INCLUÍMOS 'stock' EN LA LLAMADA A INVENTARIO
         const { data: prods } = await supabase.from('productos')
-            .select('*, inventario(sucursal_id, precio, precio_mayoreo, precio_distribuidor, precio_medico)')
+            .select('*, inventario(sucursal_id, precio, precio_mayoreo, precio_distribuidor, precio_medico, stock)')
             .eq('activo', true);
             
         if (prods) {
             const productosAdaptados = prods.map(p => {
-                if (p.usa_precio_sucursal) {
-                    const invLocal = p.inventario.find(i => i.sucursal_id === sucursalId);
-                    if (invLocal) {
-                        return { ...p, precio: invLocal.precio ?? p.precio, precio_mayoreo: invLocal.precio_mayoreo ?? p.precio_mayoreo, precio_distribuidor: invLocal.precio_distribuidor ?? p.precio_distribuidor, precio_medico: invLocal.precio_medico ?? p.precio_medico };
-                    }
+                const invLocal = p.inventario?.find(i => i.sucursal_id === sucursalId);
+                const stockLocal = invLocal?.stock ?? 0;
+
+                if (p.usa_precio_sucursal && invLocal) {
+                    return { ...p, precio: invLocal.precio ?? p.precio, precio_mayoreo: invLocal.precio_mayoreo ?? p.precio_mayoreo, precio_distribuidor: invLocal.precio_distribuidor ?? p.precio_distribuidor, precio_medico: invLocal.precio_medico ?? p.precio_medico, stock: stockLocal };
                 }
-                return p;
+                return { ...p, stock: stockLocal };
             });
             setProductosDB(productosAdaptados);
         }
@@ -61,11 +65,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
         const { data: promos } = await supabase.from('promociones').select('*');
         if (promos) setPromocionesDB(promos);
+
+        const { data: docs } = await supabase.from('doctores').select('*').eq('activo', true).order('nombre');
+        if (docs) setDoctoresDB(docs);
     };
 
     const fetchHistorialHoy = async () => {
         const hoy = new Date().toISOString().split('T')[0];
-        const { data } = await supabase.from('ventas').select(`id, fecha, total, metodo_pago, vendedor_nombre, clientes ( nombre ), venta_detalles ( cantidad, productos ( nombre ) )`).eq('sucursal_id', sucursalId).gte('fecha', `${hoy}T00:00:00`).order('fecha', { ascending: false });
+        // 🚀 EXTRAEMOS LA COLUMNA NOTAS PARA MOSTRARLA EN EL HISTORIAL
+        const { data } = await supabase.from('ventas').select(`id, fecha, total, metodo_pago, vendedor_nombre, notas, clientes ( nombre ), venta_detalles ( cantidad, productos ( nombre ) )`).eq('sucursal_id', sucursalId).gte('fecha', `${hoy}T00:00:00`).order('fecha', { ascending: false });
         if (data) setHistorialHoy(data);
     };
 
@@ -75,16 +83,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         scannerInputRef.current?.focus();
     }, [branch]);
 
-    // Escáner Inteligente (Captura códigos aunque el input no esté en foco)
-    const modalsState = useRef({ cat: false, cli: false, drop: false });
-    useEffect(() => { modalsState.current = { cat: showCatalogModal, cli: showNewClientModal, drop: showClientSearchModal }; }, [showCatalogModal, showNewClientModal, showClientSearchModal]);
+    const modalsState = useRef({ cat: false, cli: false, drop: false, conf: false });
+    useEffect(() => { modalsState.current = { cat: showCatalogModal, cli: showNewClientModal, drop: showClientSearchModal, conf: showConfirmModal }; }, [showCatalogModal, showNewClientModal, showClientSearchModal, showConfirmModal]);
 
     useEffect(() => {
         const handleGlobalKeyDown = (e) => {
             const activeElement = document.activeElement;
             const isInputFocused = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.tagName === 'SELECT');
             const mods = modalsState.current;
-            if (!isInputFocused && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !mods.cat && !mods.cli && !mods.drop) {
+            if (!isInputFocused && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !mods.cat && !mods.cli && !mods.drop && !mods.conf) {
                 scannerInputRef.current?.focus();
             }
         };
@@ -105,7 +112,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             const existing = prev.find(item => item.id === product.id);
             if (existing) return prev.map(item => item.id === product.id ? { ...item, qty: item.qty + 1 } : item);
             return [...prev, { 
-                id: product.id, code: product.codigo_barras, name: product.nombre, grupo_id: product.grupo_id, qty: 1, tipo_precio: 'general', precio_aplicado: product.precio,
+                id: product.id, code: product.codigo_barras, name: product.nombre, grupo_id: product.grupo_id, 
+                qty: 1, tipo_precio: 'general', precio_aplicado: product.precio, 
+                es_consulta: product.es_consulta, 
                 opciones_precio: { general: product.precio, mayoreo: product.precio_mayoreo, distribuidor: product.precio_distribuidor, medico: product.precio_medico }
             }];
         });
@@ -125,7 +134,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         setTimeout(() => scannerInputRef.current?.focus(), 50);
     };
 
-    // CÁLCULO DE TOTALES Y DESCUENTOS
+    // FUNCIÓN PARA ANCLAR PRODUCTOS RÁPIDOS
+    const toggleAccesoRapido = async (prod) => {
+        const newState = !prod.acceso_rapido;
+        const { error } = await supabase.from('productos').update({ acceso_rapido: newState }).eq('id', prod.id);
+        if (!error) {
+            setProductosDB(prev => prev.map(p => p.id === prod.id ? { ...p, acceso_rapido: newState } : p));
+        }
+    };
+
     let subtotalBruto = 0;
     let totalDescuentos = 0;
     const hoy = new Date();
@@ -168,8 +185,8 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     });
 
     const totalCobrar = subtotalBruto - totalDescuentos;
+    const hasConsulta = cartRender.some(item => item.es_consulta === true || item.name.toLowerCase().includes('consulta'));
 
-    // Lógicas de Pago Mixto
     const tMixEfe = parseFloat(montosMixtos.efectivo) || 0;
     const tMixTar = parseFloat(montosMixtos.tarjeta) || 0;
     const tMixTra = parseFloat(montosMixtos.transferencia) || 0;
@@ -177,30 +194,33 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const restanteMixto = totalCobrar - sumaMixta;
     const cambioMixto = sumaMixta > totalCobrar ? sumaMixta - totalCobrar : 0;
 
-    const handleCheckout = async () => {
-        if (cartRender.length === 0) return alert(t('carritoVacio'));
-        if (!selectedClient) return alert('Por favor, selecciona un paciente o selecciona Público General obligatoriamente.');
+    const openConfirmModal = () => {
+        if (cartRender.length === 0) return alert(t('carritoVacio') || 'El carrito está vacío.');
+        if (!selectedClient) return alert(t('clienteRequerido') || 'Selecciona un paciente obligatoriamente.');
 
+        if (metodoPago === 'efectivo' && (!montoRecibido || parseFloat(montoRecibido) < totalCobrar)) return alert(t('montoInsuficiente') || 'El efectivo no cubre el total.');
+        if (metodoPago === 'transferencia' && !folioTransferencia.trim()) return alert(t('folioRequerido') || 'Ingresa el folio de la transferencia.');
+        if (metodoPago === 'mixto' && sumaMixta < totalCobrar) return alert(t('montoMixtoInsuficiente') || 'La suma del pago mixto no alcanza a cubrir el total.');
+
+        setShowConfirmModal(true);
+    };
+
+    const processFinalCheckout = async () => {
         let stringMetodoPago = metodoPago;
         let cashToRegister = 0; 
 
         if (metodoPago === 'efectivo') {
-            if (!montoRecibido || parseFloat(montoRecibido) < totalCobrar) return alert(t('montoInsuficiente'));
             cashToRegister = totalCobrar;
         } else if (metodoPago === 'tarjeta') {
-            stringMetodoPago = `Tarjeta (${tipoTarjeta === 'debito' ? t('debito') : t('credito')})`;
+            stringMetodoPago = `Tarjeta (${tipoTarjeta === 'debito' ? t('debito') || 'Déb' : t('credito') || 'Cré'})`;
         } else if (metodoPago === 'transferencia') {
-            if (!folioTransferencia.trim()) return alert(t('folioRequerido'));
             stringMetodoPago = `Transferencia (Folio: ${folioTransferencia.trim()})`;
         } else if (metodoPago === 'mixto') {
-            if (sumaMixta < totalCobrar) return alert('El monto total mixto no cubre el total a pagar.');
-            
             const efectivoNeto = tMixEfe - cambioMixto;
-            if (efectivoNeto < 0) return alert('El cambio supera el monto en efectivo recibido. Revisa las cantidades, no puedes dar cambio de una tarjeta.');
+            if (efectivoNeto < 0) return alert('El cambio supera el monto en efectivo. No puedes dar cambio de tarjeta/transferencia.');
 
             let desglose = [];
             if (efectivoNeto > 0) desglose.push(`Efe: $${efectivoNeto.toFixed(2)}`);
-            // 🚀 FIX: Especificamos el tipo de tarjeta en el mixto
             if (tMixTar > 0) desglose.push(`Tar (${tipoTarjeta === 'debito' ? 'Déb' : 'Cré'}): $${tMixTar.toFixed(2)}`);
             if (tMixTra > 0) desglose.push(`Tra: $${tMixTra.toFixed(2)}${folioTransferencia ? ' f-'+folioTransferencia : ''}`);
             
@@ -208,9 +228,8 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             cashToRegister = efectivoNeto; 
         }
 
-        const btn = document.getElementById('btn-cobrar');
-        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${t('procesando')}`;
-        btn.disabled = true;
+        const btn = document.getElementById('btn-confirm-checkout');
+        if(btn) { btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Procesando...`; btn.disabled = true; }
 
         const payloadItems = cartRender.map(item => ({
             producto_id: item.id, qty: item.qty, tipo_precio: item.tipo_precio,
@@ -226,10 +245,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
         if (error) {
             alert('Error: ' + error.message);
+            if(btn) { btn.innerHTML = `<i class="fa-solid fa-check"></i> ${t('confirmarVenta') || 'Confirmar'}`; btn.disabled = false; }
         } else {
             const { data: latestSale } = await supabase.from('ventas').select('id').eq('sucursal_id', sucursalId).order('fecha', { ascending: false }).limit(1);
             if (latestSale && latestSale.length > 0) {
-                await supabase.from('ventas').update({ vendedor_nombre: perfilActual?.nombre || 'Recepcionista' }).eq('id', latestSale[0].id);
+                await supabase.from('ventas').update({ 
+                    vendedor_nombre: perfilActual?.nombre || 'Recepcionista',
+                    doctor_id: selectedDoctor ? parseInt(selectedDoctor) : null,
+                    notas: saleNotes.trim() || null
+                }).eq('id', latestSale[0].id);
             }
 
             if (cashToRegister > 0) {
@@ -237,20 +261,17 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             }
 
             if (metodoPago === 'efectivo') {
-                alert(`${t('cobradoExito')} EFECTIVO!\n\n${t('cambio')}: $${(parseFloat(montoRecibido) - totalCobrar).toFixed(2)}`);
+                alert(`${t('cobradoExito') || '¡Cobrado con éxito!'} EFECTIVO!\n\n${t('cambio') || 'Cambio'}: $${(parseFloat(montoRecibido) - totalCobrar).toFixed(2)}`);
             } else if (metodoPago === 'mixto') {
-                alert(`${t('cobradoExito')} PAGO MIXTO!\n\n${t('cambio')}: $${cambioMixto.toFixed(2)}`);
+                alert(`${t('cobradoExito') || '¡Cobrado con éxito!'} PAGO MIXTO!\n\n${t('cambio') || 'Cambio'}: $${cambioMixto.toFixed(2)}`);
             } else {
-                alert(`${t('cobradoExito')} ${stringMetodoPago.toUpperCase()}!`);
+                alert(`${t('cobradoExito') || '¡Cobrado con éxito!'} ${stringMetodoPago.toUpperCase()}!`);
             }
             
             setCart([]); setSelectedClient(''); setMontoRecibido(''); setFolioTransferencia(''); setMontosMixtos({efectivo:'', tarjeta:'', transferencia:''});
+            setSaleNotes(''); setSelectedDoctor(''); setShowConfirmModal(false);
             fetchHistorialHoy();
         }
-        
-        btn.innerHTML = `<i class="fa-solid fa-cash-register"></i> ${t('cobrar')}`; 
-        btn.disabled = false;
-        setTimeout(() => scannerInputRef.current?.focus(), 50);
     };
 
     const filteredCatalog = productosDB.filter(p => p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || (p.codigo_barras && p.codigo_barras.includes(searchTerm)));
@@ -265,7 +286,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 {/* PANEL IZQUIERDO (CARRITO) */}
                 <div className="panel" style={{ flex: 1.6, display: 'flex', flexDirection: 'column', padding: '25px', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
                     
-                    {/* INPUTS ESTÉTICOS Y GIGANTES */}
                     <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexShrink: 0 }}>
                         <div style={{position: 'relative', flex: 1}}>
                             <i className="fa-solid fa-barcode" style={{position: 'absolute', left: '20px', top: '18px', color: 'var(--text-muted)', fontSize: '1.2rem'}}></i>
@@ -330,10 +350,98 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 {/* PANEL DERECHO (AUTO-AJUSTABLE SIN SCROLL EXCESIVO) */}
                 <div className="panel" style={{ flex: 1.1, display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
                     
-                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
                         
-                        {/* 🚀 AÑADIR RÁPIDO (GRID AJUSTADO PARA NO ALARGARSE) */}
-                        <div style={{display: 'flex', flexDirection: 'column', flex: 1, minHeight: '120px', marginBottom: '15px'}}>
+                        {/* PACIENTE ESTÉTICO */}
+                        <div style={{flexShrink: 0}}>
+                            <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}>{t('asignarPaciente')} *</label>
+                            <div style={{display: 'flex', gap: '10px'}}>
+                                <div 
+                                    onClick={() => { setShowClientSearchModal(true); setClientSearchTerm(''); }}
+                                    style={{ flex: 1, padding: '14px 20px', background: 'var(--bg-main)', color: selectedClient ? 'var(--text-main)' : 'var(--text-muted)', border: selectedClient ? '1px solid var(--accent)' : '1px dashed var(--primary-red)', borderRadius: '12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.3s' }}
+                                >
+                                    <span style={{fontSize: '1.05rem', fontWeight: selectedClient ? 'bold' : 'normal', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
+                                        {selectedClient === 'general' ? t('publicoGeneral') : (selectedClient ? clientesDB.find(c => c.id === selectedClient)?.nombre : '-- Selecciona un paciente --')}
+                                    </span>
+                                    <i className="fa-solid fa-magnifying-glass" style={{fontSize: '0.9rem', color: 'var(--accent)'}}></i>
+                                </div>
+                                <button className="btn-action btn-primary" onClick={() => setShowNewClientModal(true)} style={{padding: '0 20px', borderRadius: '12px', flexShrink: 0}} title={t('registrarPaciente')}><i className="fa-solid fa-user-plus"></i></button>
+                            </div>
+                        </div>
+
+                        {/* FORMA DE PAGO */}
+                        <div style={{flexShrink: 0}}>
+                            <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}>{t('formaPago')}</label>
+                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px'}}>
+                                <button onClick={() => setMetodoPago('efectivo')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'efectivo' ? 'var(--success)' : 'var(--bg-main)', color: metodoPago === 'efectivo' ? 'white' : 'var(--text-main)', border: metodoPago === 'efectivo' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-money-bill-1-wave" style={{marginRight: '5px'}}></i> Efectivo</button>
+                                <button onClick={() => setMetodoPago('tarjeta')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'tarjeta' ? 'var(--accent)' : 'var(--bg-main)', color: metodoPago === 'tarjeta' ? 'white' : 'var(--text-main)', border: metodoPago === 'tarjeta' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-credit-card" style={{marginRight: '5px'}}></i> Tarjeta</button>
+                                <button onClick={() => setMetodoPago('transferencia')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'transferencia' ? '#9333ea' : 'var(--bg-main)', color: metodoPago === 'transferencia' ? 'white' : 'var(--text-main)', border: metodoPago === 'transferencia' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-building-columns" style={{marginRight: '5px'}}></i> Transf.</button>
+                                <button onClick={() => setMetodoPago('mixto')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'mixto' ? '#eab308' : 'var(--bg-main)', color: metodoPago === 'mixto' ? 'white' : 'var(--text-main)', border: metodoPago === 'mixto' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-chart-pie" style={{marginRight: '5px'}}></i> Mixto</button>
+                            </div>
+
+                            {metodoPago === 'efectivo' && (
+                                <div style={{background: 'rgba(22, 163, 74, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid var(--success)'}}>
+                                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                                        <span style={{color: 'var(--success)', fontWeight: 'bold', fontSize: '0.9rem'}}>{t('montoRecibido')}</span>
+                                        <input type="number" value={montoRecibido} onChange={(e) => setMontoRecibido(e.target.value)} placeholder="$ 0.00" 
+                                            style={{width: '120px', textAlign: 'right', fontSize: '1.1rem', fontWeight: '900', backgroundColor: 'var(--bg-main)', color: 'var(--success)', border: '1px solid var(--success)', padding: '8px', borderRadius: '8px', outline: 'none'}} />
+                                    </div>
+                                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: '900', fontSize: '1.1rem', color: (parseFloat(montoRecibido || 0) >= totalCobrar) ? 'var(--success)' : 'var(--primary-red)'}}>
+                                        <span>{t('cambio')}:</span>
+                                        <span>${(parseFloat(montoRecibido || 0) >= totalCobrar) ? (parseFloat(montoRecibido) - totalCobrar).toFixed(2) : '0.00'}</span>
+                                    </div>
+                                </div>
+                            )}
+                            {metodoPago === 'tarjeta' && (
+                                <div style={{background: 'rgba(2, 132, 199, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid var(--accent)'}}>
+                                    <label style={{fontSize: '0.9rem', color: 'var(--accent)', marginBottom: '10px', display: 'block', fontWeight: 'bold'}}>{t('tipoTarjeta')}</label>
+                                    <div style={{display: 'flex', gap: '10px'}}>
+                                        <button onClick={() => setTipoTarjeta('debito')} className="btn-action" style={{flex: 1, padding: '12px', borderRadius: '8px', background: tipoTarjeta === 'debito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'debito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'debito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', transition: 'all 0.2s'}}>{t('debito') || 'Débito'}</button>
+                                        <button onClick={() => setTipoTarjeta('credito')} className="btn-action" style={{flex: 1, padding: '12px', borderRadius: '8px', background: tipoTarjeta === 'credito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'credito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'credito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', transition: 'all 0.2s'}}>{t('credito') || 'Crédito'}</button>
+                                    </div>
+                                </div>
+                            )}
+                            {metodoPago === 'transferencia' && (
+                                <div style={{background: 'rgba(147, 51, 234, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid #9333ea'}}>
+                                    <label style={{fontSize: '0.9rem', color: '#9333ea', display: 'block', marginBottom: '10px', fontWeight: 'bold'}}><i className="fa-solid fa-hashtag"></i> {t('folioTransferencia')}</label>
+                                    <input type="text" value={folioTransferencia} onChange={(e) => setFolioTransferencia(e.target.value)} placeholder={t('ingresaFolio')} style={{width: '100%', padding: '14px', border: '1px solid #9333ea', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderRadius: '8px', fontSize: '1rem', outline: 'none'}} />
+                                </div>
+                            )}
+                            {metodoPago === 'mixto' && (
+                                <div style={{background: 'rgba(234, 179, 8, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid #eab308'}}>
+                                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '10px'}}>
+                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--success)', display: 'block', marginBottom: '4px'}}>Efectivo</label><input type="number" value={montosMixtos.efectivo} onChange={e=>setMontosMixtos({...montosMixtos, efectivo: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--success)', background: 'var(--bg-main)', color: 'var(--success)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
+                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent)', display: 'block', marginBottom: '4px'}}>Tarjeta</label><input type="number" value={montosMixtos.tarjeta} onChange={e=>setMontosMixtos({...montosMixtos, tarjeta: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--bg-main)', color: 'var(--accent)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
+                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: '#9333ea', display: 'block', marginBottom: '4px'}}>Transf.</label><input type="number" value={montosMixtos.transferencia} onChange={e=>setMontosMixtos({...montosMixtos, transferencia: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #9333ea', background: 'var(--bg-main)', color: '#9333ea', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
+                                    </div>
+                                    {(parseFloat(montosMixtos.tarjeta) > 0) && (
+                                        <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
+                                            <button onClick={() => setTipoTarjeta('debito')} className="btn-action" style={{flex: 1, padding: '8px', borderRadius: '6px', background: tipoTarjeta === 'debito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'debito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'debito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '0.8rem'}}>{t('debito') || 'Débito'}</button>
+                                            <button onClick={() => setTipoTarjeta('credito')} className="btn-action" style={{flex: 1, padding: '8px', borderRadius: '6px', background: tipoTarjeta === 'credito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'credito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'credito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '0.8rem'}}>{t('credito') || 'Crédito'}</button>
+                                        </div>
+                                    )}
+                                    {(parseFloat(montosMixtos.transferencia) > 0) && (
+                                        <input type="text" value={folioTransferencia} onChange={(e) => setFolioTransferencia(e.target.value)} placeholder="Folio Transf. (Opcional)" style={{width: '100%', padding: '8px', border: '1px solid #9333ea', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderRadius: '6px', fontSize: '0.85rem', outline: 'none', marginBottom: '10px'}} />
+                                    )}
+                                    <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: 'bold'}}>
+                                        <span style={{color: 'var(--text-muted)'}}>Restante: <strong style={{color: restanteMixto > 0 ? 'var(--primary-red)' : 'var(--success)'}}>${Math.max(0, restanteMixto).toFixed(2)}</strong></span>
+                                        <span style={{color: 'var(--text-muted)'}}>{t('cambio')}: <strong style={{color: 'var(--text-main)'}}>${cambioMixto.toFixed(2)}</strong></span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 🚀 NOTAS DE VENTA */}
+                        <div style={{flexShrink: 0}}>
+                            <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}><i className="fa-solid fa-pen-to-square" style={{color: 'var(--accent)', marginRight: '5px'}}></i> {t('notasVentaOpcional') || 'Notas de la Venta (Opcional)'}</label>
+                            <textarea 
+                                value={saleNotes} onChange={e => setSaleNotes(e.target.value)} placeholder="Escribe aquí instrucciones especiales, comentarios del paciente..."
+                                style={{width: '100%', padding: '12px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '0.95rem', outline: 'none', resize: 'none', minHeight: '60px'}}
+                            />
+                        </div>
+
+                        {/* 🚀 AÑADIR RÁPIDO (CANTIDAD FLEXIBLE CON SCROLL INTERNO) */}
+                        <div style={{flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px'}}>
                             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                                 <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1rem'}}><i className="fa-solid fa-bolt" style={{color:'var(--accent)', marginRight: '8px'}}></i> {t('anadirRapido')}</h3>
                                 <button className="btn-action" onClick={() => { setShowCatalogModal(true); setTimeout(() => scannerInputRef.current?.blur(), 50); }} style={{padding: '6px 12px', background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '6px', fontSize: '0.8rem'}}><i className="fa-solid fa-list"></i> {t('verCatalogo')}</button>
@@ -355,106 +463,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                 </div>
                             )}
                         </div>
-
-                        {/* PACIENTE ESTÉTICO Y GIGANTE (SIN DROPDOWN CLIPPED) */}
-                        <div style={{marginBottom: '15px', borderTop: '1px dashed var(--border-color)', paddingTop: '15px'}}>
-                            <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}>{t('asignarPaciente')} *</label>
-                            <div style={{display: 'flex', gap: '10px'}}>
-                                <div 
-                                    onClick={() => { setShowClientSearchModal(true); setClientSearchTerm(''); }}
-                                    style={{ flex: 1, padding: '14px 20px', background: 'var(--bg-main)', color: selectedClient ? 'var(--text-main)' : 'var(--text-muted)', border: selectedClient ? '1px solid var(--accent)' : '1px dashed var(--primary-red)', borderRadius: '12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.3s' }}
-                                >
-                                    <span style={{fontSize: '1.05rem', fontWeight: selectedClient ? 'bold' : 'normal'}}>
-                                        {selectedClient === 'general' ? t('publicoGeneral') : (selectedClient ? clientesDB.find(c => c.id === selectedClient)?.nombre : '-- Selecciona un paciente --')}
-                                    </span>
-                                    <i className="fa-solid fa-magnifying-glass" style={{fontSize: '0.9rem', color: 'var(--accent)'}}></i>
-                                </div>
-                                
-                                <button className="btn-action btn-primary" onClick={() => setShowNewClientModal(true)} style={{padding: '0 20px', borderRadius: '12px'}} title={t('registrarPaciente')}><i className="fa-solid fa-user-plus"></i></button>
-                            </div>
-                        </div>
-
-                        {/* FORMA DE PAGO */}
-                        <div>
-                            <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}>{t('formaPago')}</label>
-                            
-                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px'}}>
-                                <button onClick={() => setMetodoPago('efectivo')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'efectivo' ? 'var(--success)' : 'var(--bg-main)', color: metodoPago === 'efectivo' ? 'white' : 'var(--text-main)', border: metodoPago === 'efectivo' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-money-bill-1-wave" style={{marginRight: '5px'}}></i> Efectivo</button>
-                                <button onClick={() => setMetodoPago('tarjeta')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'tarjeta' ? 'var(--accent)' : 'var(--bg-main)', color: metodoPago === 'tarjeta' ? 'white' : 'var(--text-main)', border: metodoPago === 'tarjeta' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-credit-card" style={{marginRight: '5px'}}></i> Tarjeta</button>
-                                <button onClick={() => setMetodoPago('transferencia')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'transferencia' ? '#9333ea' : 'var(--bg-main)', color: metodoPago === 'transferencia' ? 'white' : 'var(--text-main)', border: metodoPago === 'transferencia' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-building-columns" style={{marginRight: '5px'}}></i> Transf.</button>
-                                <button onClick={() => setMetodoPago('mixto')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'mixto' ? '#eab308' : 'var(--bg-main)', color: metodoPago === 'mixto' ? 'white' : 'var(--text-main)', border: metodoPago === 'mixto' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-chart-pie" style={{marginRight: '5px'}}></i> Mixto</button>
-                            </div>
-
-                            {/* DETALLES DEL PAGO */}
-                            {metodoPago === 'efectivo' && (
-                                <div style={{background: 'rgba(22, 163, 74, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid var(--success)'}}>
-                                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
-                                        <span style={{color: 'var(--success)', fontWeight: 'bold', fontSize: '0.9rem'}}>{t('montoRecibido')}</span>
-                                        <input type="number" value={montoRecibido} onChange={(e) => setMontoRecibido(e.target.value)} placeholder="$ 0.00" 
-                                            style={{width: '120px', textAlign: 'right', fontSize: '1.1rem', fontWeight: '900', backgroundColor: 'var(--bg-main)', color: 'var(--success)', border: '1px solid var(--success)', padding: '8px', borderRadius: '8px', outline: 'none'}} />
-                                    </div>
-                                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: '900', fontSize: '1.1rem', color: (parseFloat(montoRecibido || 0) >= totalCobrar) ? 'var(--success)' : 'var(--primary-red)'}}>
-                                        <span>{t('cambio')}:</span>
-                                        <span>${(parseFloat(montoRecibido || 0) >= totalCobrar) ? (parseFloat(montoRecibido) - totalCobrar).toFixed(2) : '0.00'}</span>
-                                    </div>
-                                </div>
-                            )}
-
-                            {metodoPago === 'tarjeta' && (
-                                <div style={{background: 'rgba(2, 132, 199, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid var(--accent)'}}>
-                                    <label style={{fontSize: '0.9rem', color: 'var(--accent)', marginBottom: '10px', display: 'block', fontWeight: 'bold'}}>{t('tipoTarjeta')}</label>
-                                    <div style={{display: 'flex', gap: '10px'}}>
-                                        <button onClick={() => setTipoTarjeta('debito')} className="btn-action" style={{flex: 1, padding: '12px', borderRadius: '8px', background: tipoTarjeta === 'debito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'debito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'debito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', transition: 'all 0.2s'}}>{t('debito')}</button>
-                                        <button onClick={() => setTipoTarjeta('credito')} className="btn-action" style={{flex: 1, padding: '12px', borderRadius: '8px', background: tipoTarjeta === 'credito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'credito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'credito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', transition: 'all 0.2s'}}>{t('credito')}</button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {metodoPago === 'transferencia' && (
-                                <div style={{background: 'rgba(147, 51, 234, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid #9333ea'}}>
-                                    <label style={{fontSize: '0.9rem', color: '#9333ea', display: 'block', marginBottom: '10px', fontWeight: 'bold'}}><i className="fa-solid fa-hashtag"></i> {t('folioTransferencia')}</label>
-                                    <input type="text" value={folioTransferencia} onChange={(e) => setFolioTransferencia(e.target.value)} placeholder={t('ingresaFolio')} style={{width: '100%', padding: '14px', border: '1px solid #9333ea', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderRadius: '8px', fontSize: '1rem', outline: 'none'}} />
-                                </div>
-                            )}
-
-                            {/* 🚀 PAGO MIXTO ESTILIZADO CON SELECTOR DE TARJETA */}
-                            {metodoPago === 'mixto' && (
-                                <div style={{background: 'rgba(234, 179, 8, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid #eab308'}}>
-                                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '10px'}}>
-                                        <div>
-                                            <label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--success)', display: 'block', marginBottom: '4px'}}>Efectivo</label>
-                                            <input type="number" value={montosMixtos.efectivo} onChange={e=>setMontosMixtos({...montosMixtos, efectivo: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--success)', background: 'var(--bg-main)', color: 'var(--success)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" />
-                                        </div>
-                                        <div>
-                                            <label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent)', display: 'block', marginBottom: '4px'}}>Tarjeta</label>
-                                            <input type="number" value={montosMixtos.tarjeta} onChange={e=>setMontosMixtos({...montosMixtos, tarjeta: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--bg-main)', color: 'var(--accent)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" />
-                                        </div>
-                                        <div>
-                                            <label style={{fontSize: '0.7rem', fontWeight: 'bold', color: '#9333ea', display: 'block', marginBottom: '4px'}}>Transf.</label>
-                                            <input type="number" value={montosMixtos.transferencia} onChange={e=>setMontosMixtos({...montosMixtos, transferencia: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #9333ea', background: 'var(--bg-main)', color: '#9333ea', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" />
-                                        </div>
-                                    </div>
-
-                                    {/* Sub-opciones Dinámicas en el Mixto */}
-                                    {(parseFloat(montosMixtos.tarjeta) > 0) && (
-                                        <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
-                                            <button onClick={() => setTipoTarjeta('debito')} className="btn-action" style={{flex: 1, padding: '8px', borderRadius: '6px', background: tipoTarjeta === 'debito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'debito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'debito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '0.8rem'}}>{t('debito')}</button>
-                                            <button onClick={() => setTipoTarjeta('credito')} className="btn-action" style={{flex: 1, padding: '8px', borderRadius: '6px', background: tipoTarjeta === 'credito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'credito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'credito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '0.8rem'}}>{t('credito')}</button>
-                                        </div>
-                                    )}
-                                    
-                                    {(parseFloat(montosMixtos.transferencia) > 0) && (
-                                        <input type="text" value={folioTransferencia} onChange={(e) => setFolioTransferencia(e.target.value)} placeholder="Folio Transf. (Opcional)" style={{width: '100%', padding: '8px', border: '1px solid #9333ea', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderRadius: '6px', fontSize: '0.85rem', outline: 'none', marginBottom: '10px'}} />
-                                    )}
-
-                                    <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: 'bold'}}>
-                                        <span style={{color: 'var(--text-muted)'}}>Restante: <strong style={{color: restanteMixto > 0 ? 'var(--primary-red)' : 'var(--success)'}}>${Math.max(0, restanteMixto).toFixed(2)}</strong></span>
-                                        <span style={{color: 'var(--text-muted)'}}>{t('cambio')}: <strong style={{color: 'var(--text-main)'}}>${cambioMixto.toFixed(2)}</strong></span>
-                                    </div>
-                                </div>
-                            )}
-
-                        </div>
                     </div>
 
                     {/* TOTALES Y BOTÓN DE COBRO (FIJOS AL FONDO) */}
@@ -467,7 +475,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             <span style={{fontSize: '2.8rem', color: 'var(--success)', fontWeight: '900'}}>${totalCobrar.toFixed(2)}</span>
                         </div>
                         
-                        <button id="btn-cobrar" onClick={handleCheckout} className="btn-primary" 
+                        <button onClick={openConfirmModal} className="btn-primary" 
                             style={{
                                 width:'100%', padding:'20px', border:'none', borderRadius:'12px', 
                                 fontSize:'1.4rem', fontWeight:'900', cursor:'pointer', 
@@ -479,7 +487,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             </div>
 
-            {/* TABLA HISTORIAL DEL DÍA */}
+            {/* TABLA HISTORIAL DEL DÍA (CON COLUMNA NOTAS) */}
             <div className="panel" style={{ flex: '0 0 auto', marginTop: '25px', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
                 <h3 style={{marginBottom: '20px', color: 'var(--text-main)', fontSize: '1.2rem'}}><i className="fa-solid fa-clock-history" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('historialDia')} - {branch.toUpperCase()}</h3>
                 <div style={{maxHeight: '350px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '12px'}}>
@@ -490,6 +498,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                 <th>{t('hora')}</th>
                                 <th>{t('clientes')}</th>
                                 <th>{t('articulos')}</th>
+                                <th>{t('notas') || 'Notas'}</th>
                                 <th>{t('formaPago')}</th>
                                 <th>{t('vendedor')}</th>
                                 <th style={{textAlign: 'right', paddingRight: '25px'}}>{t('total')}</th>
@@ -508,12 +517,16 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                             ))}
                                         </div>
                                     </td>
+                                    {/* 🚀 NUEVA COLUMNA DE NOTAS EN EL HISTORIAL */}
+                                    <td style={{color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}} title={venta.notas}>
+                                        {venta.notas ? <><i className="fa-solid fa-comment-dots" style={{color: 'var(--accent)'}}></i> {venta.notas}</> : '--'}
+                                    </td>
                                     <td><span style={{fontSize: '0.75rem', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 12px', borderRadius: '6px', fontWeight: 'bold'}}>{venta.metodo_pago.toUpperCase()}</span></td>
                                     <td style={{color: 'var(--text-muted)', fontSize: '0.9rem'}}>{venta.vendedor_nombre || 'N/A'}</td>
                                     <td style={{color: 'var(--success)', fontWeight: 'bold', textAlign: 'right', fontSize: '1.1rem', paddingRight: '25px'}}>${parseFloat(venta.total).toFixed(2)}</td>
                                 </tr>
                             ))}
-                            {historialHoy.length === 0 && <tr><td colSpan="7" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-receipt fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos') || 'No se han registrado ventas hoy.'}</td></tr>}
+                            {historialHoy.length === 0 && <tr><td colSpan="8" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-receipt fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos') || 'No se han registrado ventas hoy.'}</td></tr>}
                         </tbody>
                     </table>
                 </div>
@@ -521,7 +534,73 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
             {/* 🚀 MODALES CON EFECTO BLUR (PREMIUM) */}
 
-            {/* 🚀 NUEVO MODAL: BUSCADOR DE PACIENTES */}
+            {/* MODAL DE CONFIRMACIÓN DE VENTA Y DOCTOR */}
+            {showConfirmModal && (
+                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
+                    <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '500px', border: '1px solid var(--border-color)', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden'}}>
+                        
+                        <div style={{background: 'var(--bg-main)', padding: '25px 30px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                            <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '900'}}><i className="fa-solid fa-file-invoice-dollar" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('resumenVenta') || 'Resumen de la Venta'}</h3>
+                            <button onClick={() => setShowConfirmModal(false)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
+                        </div>
+                        
+                        <div style={{padding: '30px', maxHeight: '60vh', overflowY: 'auto'}}>
+                            
+                            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '15px', color: 'var(--text-main)'}}>
+                                <span style={{fontWeight: 'bold', textTransform: 'uppercase', fontSize: '0.85rem', color: 'var(--text-muted)'}}>Paciente:</span>
+                                <strong>{selectedClient === 'general' ? t('publicoGeneral') : clientesDB.find(c => c.id === selectedClient)?.nombre}</strong>
+                            </div>
+
+                            <div style={{background: 'var(--bg-main)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '15px', marginBottom: '20px'}}>
+                                {cartRender.map((item, idx) => (
+                                    <div key={idx} style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.95rem', color: 'var(--text-main)'}}>
+                                        <span><strong style={{color: 'var(--accent)'}}>{item.qty}x</strong> {item.name}</span>
+                                        <strong style={{fontFamily: 'monospace'}}>${item.importeNeto.toFixed(2)}</strong>
+                                    </div>
+                                ))}
+                                <div style={{borderTop: '1px dashed var(--border-color)', margin: '15px 0'}}></div>
+                                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '1.3rem', fontWeight: '900', color: 'var(--success)'}}>
+                                    <span>{t('total')}</span>
+                                    <span>${totalCobrar.toFixed(2)}</span>
+                                </div>
+                            </div>
+
+                            {/* ASIGNACIÓN DE DOCTOR OBLIGATORIA */}
+                            {hasConsulta && (
+                                <div style={{background: 'rgba(2, 136, 209, 0.05)', border: '1px solid #0288d1', padding: '20px', borderRadius: '12px', marginBottom: '20px'}}>
+                                    <label style={{display: 'block', color: '#0288d1', fontWeight: 'bold', fontSize: '0.95rem', marginBottom: '10px'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> {t('doctorAsignado') || 'Doctor Asignado'} *</label>
+                                    <p style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px'}}>Esta venta incluye una consulta. Selecciona al doctor correspondiente.</p>
+                                    <select 
+                                        value={selectedDoctor} 
+                                        onChange={(e) => setSelectedDoctor(e.target.value)} 
+                                        style={{width: '100%', padding: '14px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid #0288d1', borderRadius: '8px', fontSize: '1rem', outline: 'none', fontWeight: 'bold'}}
+                                    >
+                                        <option value="">{t('seleccionaDoctor') || '-- Selecciona un Doctor --'}</option>
+                                        {doctoresDB.map(doc => (
+                                            <option key={doc.id} value={doc.id}>{doc.nombre} ({doc.especialidad})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            {saleNotes && (
+                                <div style={{fontSize: '0.9rem', color: 'var(--text-muted)', background: 'var(--bg-main)', padding: '15px', borderRadius: '8px', borderLeft: '4px solid var(--accent)', fontStyle: 'italic'}}>
+                                    <i className="fa-solid fa-pen-to-square" style={{marginRight: '5px'}}></i> "{saleNotes}"
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{padding: '20px 30px', background: 'var(--bg-panel)', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '15px'}}>
+                            <button className="btn-action" onClick={() => setShowConfirmModal(false)} style={{flex: 1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem'}}>{t('cancelar')}</button>
+                            <button id="btn-confirm-checkout" className="btn-primary" onClick={processFinalCheckout} disabled={hasConsulta && !selectedDoctor} style={{flex: 2, padding: '16px', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: (hasConsulta && !selectedDoctor) ? 'not-allowed' : 'pointer', opacity: (hasConsulta && !selectedDoctor) ? 0.5 : 1, boxShadow: '0 5px 15px rgba(211, 47, 47, 0.3)'}}>
+                                <i className="fa-solid fa-check" style={{marginRight: '8px'}}></i> {t('confirmarVenta') || 'Confirmar Pago'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL: BUSCADOR DE PACIENTES */}
             {showClientSearchModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '16px', width: '550px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left', display: 'flex', flexDirection: 'column', maxHeight: '80vh'}}>
@@ -555,7 +634,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* MODAL DEL CATÁLOGO DE PRODUCTOS */}
+            {/* MODAL DEL CATÁLOGO DE PRODUCTOS CON STOCK INYECTADO */}
             {showCatalogModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{width: '900px', maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', textAlign: 'left', background: 'var(--bg-panel)', padding: '0', borderRadius: '16px', border: '1px solid var(--border-color)', boxShadow: '0 10px 40px rgba(0,0,0,0.2)'}}>
@@ -578,6 +657,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                         <th style={{textAlign: 'center', padding: '15px'}}><i className="fa-solid fa-star"></i></th>
                                         <th>{t('codigo')}</th>
                                         <th>{t('nombre')}</th>
+                                        <th style={{textAlign: 'center'}}>{t('stock') || 'Stock'}</th>
                                         <th>{t('precio')}</th>
                                         <th></th>
                                     </tr>
@@ -592,6 +672,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                             </td>
                                             <td style={{color: 'var(--text-muted)', fontFamily: 'monospace'}}>{p.codigo_barras || 'N/A'}</td>
                                             <td style={{color: 'var(--text-main)', fontSize: '1.05rem'}}><strong>{p.nombre}</strong></td>
+                                            <td style={{textAlign: 'center', fontWeight: 'bold', fontSize: '1.05rem', color: p.tipo === 'servicio' ? '#00b0ff' : (p.stock > 0 ? 'var(--success)' : 'var(--primary-red)')}}>
+                                                {p.tipo === 'servicio' ? <i className="fa-solid fa-infinity" title="Servicio"></i> : p.stock}
+                                            </td>
                                             <td style={{color: 'var(--success)', fontWeight: '900', fontSize: '1.1rem'}}>${p.precio.toFixed(2)}</td>
                                             <td style={{textAlign: 'right', paddingRight: '25px'}}>
                                                 <button className="btn-action btn-primary" onClick={() => { addToCart(p); setShowCatalogModal(false); setSearchTerm(''); }} style={{padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', boxShadow: '0 2px 8px rgba(2, 132, 199, 0.2)'}}>
@@ -600,7 +683,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                             </td>
                                         </tr>
                                     ))}
-                                    {filteredCatalog.length === 0 && <tr><td colSpan="5" style={{textAlign: 'center', padding: '50px', color: 'var(--text-muted)'}}><i className="fa-solid fa-box-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> No se encontró el insumo.</td></tr>}
+                                    {filteredCatalog.length === 0 && <tr><td colSpan="6" style={{textAlign: 'center', padding: '50px', color: 'var(--text-muted)'}}><i className="fa-solid fa-box-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> No se encontró el insumo.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -631,6 +714,11 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                     </div>
                 </div>
             )}
+            
+            <style jsx>{`
+                .animate-scale-in { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+                @keyframes scaleIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+            `}</style>
         </div>
     );
 }

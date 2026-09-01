@@ -2,6 +2,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../context/LanguageContext';
+// 🚀 IMPORTAMOS AREACHART PARA UN LOOK MUCHO MÁS MODERNO Y PREMIUM
+import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 
 export default function Finanzas({ branch = 'napoles', perfilActual }) {
     const { t } = useLanguage();
@@ -25,26 +27,30 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     const [endDate, setEndDate] = useState('');
     const [fechaTurno, setFechaTurno] = useState(''); 
     
-    const [viewMode, setViewMode] = useState('sucursal'); 
-    const [activeTab, setActiveTab] = useState('clinica'); 
+    const [viewMode, setViewMode] = useState('sucursal'); // 'sucursal' | 'global' | 'comparativas'
+    const [activeTab, setActiveTab] = useState('clinica'); // 'clinica' | 'extras' | 'caja' | 'sucursales' | 'doctores'
+    const [chartType, setChartType] = useState('ingresos'); // 'ingresos' | 'consultas' | 'ticket'
 
     const branchIdMap = { napoles: 1, obrera: 2, pedregal: 3 };
     const sucursalId = branchIdMap[branch] || 1;
 
     const [listaConsultas, setListaConsultas] = useState([]);
     const [listaProductos, setListaProductos] = useState([]);
-
+    
     const [saldoCaja, setSaldoCaja] = useState(0);
     const [historialCaja, setHistorialCaja] = useState([]);
     const [historialGlobal, setHistorialGlobal] = useState([]);
     
+    const [rawVentas, setRawVentas] = useState([]);
+    const [doctoresCatalog, setDoctoresCatalog] = useState([]);
+
     const [showCajaModal, setShowCajaModal] = useState(false);
     const [tipoMovCaja, setTipoMovCaja] = useState('fondo'); 
     const [montoCaja, setMontoCaja] = useState('');
     const [motivoCaja, setMotivoCaja] = useState('');
     const [shiftToView, setShiftToView] = useState(null);
 
-    const [filtersA, setFiltersA] = useState({ folio: '', fecha: '', sucursal: '', cliente: '', articulo: '', metodo_pago: '', importe: '' });
+    const [filtersA, setFiltersA] = useState({ folio: '', fecha: '', sucursal: '', cliente: '', articulo: '', metodo_pago: '', importe: '', doctor: '' });
     const [filtersB, setFiltersB] = useState({ folio: '', fecha: '', sucursal: '', cliente: '', articulo: '', metodo_pago: '', importe: '' });
     const [filtersCaja, setFiltersCaja] = useState({ fecha: '', tipo: '', motivo: '', monto: '' });
     
@@ -79,29 +85,38 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         const start = isDiario ? `${singleDate}T00:00:00` : `${startDate}T00:00:00`;
         const end = isDiario ? `${singleDate}T23:59:59` : `${endDate}T23:59:59`;
 
-        let queryVentas = supabase.from('ventas').select(`id, total, fecha, metodo_pago, sucursal_id, sucursales(nombre), clientes(nombre), venta_detalles(cantidad, precio_unitario, tipo_precio, productos(id, nombre, tipo, codigo_barras, es_consulta))`).gte('fecha', start).lte('fecha', end).order('fecha', { ascending: false });
+        let queryVentas = supabase.from('ventas').select(`id, total, fecha, metodo_pago, sucursal_id, doctor_id, notas, sucursales(nombre), clientes(nombre), venta_detalles(cantidad, precio_unitario, tipo_precio, productos(id, nombre, tipo, codigo_barras, es_consulta))`).gte('fecha', start).lte('fecha', end).order('fecha', { ascending: false });
         if (viewMode === 'sucursal') queryVentas = queryVentas.eq('sucursal_id', sucursalId);
         
         let queryCaja = supabase.from('movimientos_caja').select('*').gte('fecha', start).lte('fecha', end).order('fecha', { ascending: false });
         if (viewMode === 'sucursal') queryCaja = queryCaja.eq('sucursal_id', sucursalId);
 
         let queryGlobal = supabase.from('movimientos_caja').select('*').eq('sucursal_id', sucursalId).order('fecha', { ascending: false }).limit(800);
+        let queryDocs = supabase.from('doctores').select('id, nombre').eq('activo', true);
 
         const { data: estadoCaja } = await supabase.from('cajas_estado').select('saldo_actual').eq('sucursal_id', sucursalId).single();
         if (estadoCaja) setSaldoCaja(parseFloat(estadoCaja.saldo_actual));
 
-        const [resVentas, resCaja, resGlobal] = await Promise.all([queryVentas, queryCaja, queryGlobal]);
+        const [resVentas, resCaja, resGlobal, resDocs] = await Promise.all([queryVentas, queryCaja, queryGlobal, queryDocs]);
 
         if (resGlobal.data) setHistorialGlobal(resGlobal.data);
+        if (resDocs.data) setDoctoresCatalog(resDocs.data);
 
         let arrConsultas = []; let arrProductos = [];
+        
         if (resVentas.data) {
+            setRawVentas(resVentas.data); 
+            
             resVentas.data.forEach(v => {
                 const clienteNombre = v.clientes?.nombre || 'Público General';
                 const sucursalNombre = v.sucursales?.nombre || 'General';
                 const pago = v.metodo_pago || 'Efectivo';
                 const totalVentaOriginal = parseFloat(v.total) || 0;
                 const esMixto = pago.toLowerCase().includes('mixto');
+                
+                const docName = v.doctor_id ? (resDocs.data?.find(d => d.id === v.doctor_id)?.nombre || `Doctor #${v.doctor_id}`) : 'N/A';
+
+                const isClinicalTicket = v.venta_detalles?.some(det => det.productos?.es_consulta === true);
 
                 let consultaItems = [];
                 let importeConsultas = 0;
@@ -113,19 +128,22 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                     const precio = parseFloat(det.precio_unitario);
                     const importeDetalle = cant * precio;
                     const nombreArticulo = det.productos?.nombre || 'Art. Eliminado';
-                    const esConsultaOficial = det.productos?.es_consulta === true; 
+                    const tipoArticulo = det.productos?.tipo || 'producto';
+                    const nombreLower = nombreArticulo.toLowerCase();
                     
                     let valoresMixtos = { efectivo: 0, tarjeta: 0, transferencia: 0 };
                     if (esMixto) valoresMixtos = extraerValoresMixtos(pago, importeDetalle, totalVentaOriginal);
 
-                    if (esConsultaOficial) {
+                    if (isClinicalTicket && tipoArticulo === 'servicio') {
                         consultaItems.push(`${nombreArticulo} (x${cant})`);
                         importeConsultas += importeDetalle;
                         mixtosConsultas.efectivo += valoresMixtos.efectivo;
                         mixtosConsultas.tarjeta += valoresMixtos.tarjeta;
                         mixtosConsultas.transferencia += valoresMixtos.transferencia;
 
-                        if (nombreArticulo.toLowerCase().includes('consulta')) {
+                        // 🚀 LÓGICA ESTRICTA: SOLO CONTABILIZA SI EL NOMBRE LLEVA LA PALABRA "CONSULTA"
+                        // Ignorará "servicio complementario", "ventosas", etc.
+                        if (nombreLower.includes('consulta')) {
                             numVisitasReales += cant;
                         }
 
@@ -141,9 +159,12 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         sucursal: sucursalNombre, 
                         cliente: clienteNombre, 
                         articulo: consultaItems.join(' + '), 
-                        cantidad: numVisitasReales, 
+                        cantidad: numVisitasReales, // 🚀 CANTIDAD AHORA ES EXACTA Y PURA
                         importe: importeConsultas, 
-                        metodo_pago: pago, 
+                        metodo_pago: pago,
+                        doctor: docName,
+                        doctor_id: v.doctor_id,
+                        notas: v.notas, 
                         esMixto, 
                         valoresMixtos: mixtosConsultas 
                     });
@@ -216,7 +237,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     const breakdownTotal = { total: breakdownA.total + breakdownB.total, efectivo: breakdownA.efectivo + breakdownB.efectivo, tarjeta: breakdownA.tarjeta + breakdownB.tarjeta, transferencia: breakdownA.transferencia + breakdownB.transferencia };
 
     let cFondo = 0, cVentas = 0, cEntradas = 0, cSalidas = 0, cCortes = 0;
-    
     let movimientosTurnoVirtual = [];
     const idxLastCorte = cajaFiltrada.findIndex(m => m.tipo === 'corte_caja');
     if (idxLastCorte === -1) movimientosTurnoVirtual = cajaFiltrada;
@@ -231,7 +251,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         }
         else if (m.tipo === 'retiro_manual') cSalidas += amt;
     });
-    
+
     const registrarMovimientoCaja = async () => {
         if (!montoCaja || isNaN(montoCaja) || parseFloat(montoCaja) <= 0) return alert(t('alertaMontoInvalido') || 'Monto inválido.');
         let motivoFinal = motivoCaja.trim();
@@ -327,49 +347,68 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     const exportarExcelPremium = () => {
         if (consultasFiltradas.length === 0 && productosFiltrados.length === 0) return alert(t('noDatosExportar') || 'No hay datos para exportar.');
         
+        const consultasPorDoctor = {};
+        consultasFiltradas.forEach(c => {
+            const docKey = c.doctor || 'Sin Asignar';
+            if(!consultasPorDoctor[docKey]) consultasPorDoctor[docKey] = [];
+            consultasPorDoctor[docKey].push(c);
+        });
+
         let htmlTable = `
             <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-            <head><meta charset="UTF-8"><style>table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; } th, td { border: 1px solid #dddddd; padding: 10px; text-align: left; } th { background-color: #f2f2f2; font-weight: bold; } .header { font-size: 20px; font-weight: bold; color: #ffffff; background-color: #1e293b; text-align: center; } .summary-title { font-weight: bold; background-color: #e0f7fa; color: #00695c; } .summary-val { font-weight: bold; color: #00695c; text-align: right; } </style></head>
+            <head><meta charset="UTF-8"><style>table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; } th, td { border: 1px solid #dddddd; padding: 10px; text-align: left; vertical-align: middle; } th { background-color: #f2f2f2; font-weight: bold; } .header { font-size: 20px; font-weight: bold; color: #ffffff; background-color: #1e293b; text-align: center; } .summary-title { font-weight: bold; background-color: #e0f7fa; color: #00695c; } .summary-val { font-weight: bold; color: #00695c; text-align: right; } </style></head>
             <body>
                 <table>
-                    <tr><td colspan="8" class="header">REPORTE FINANCIERO - ACUPUNTURA HK (${branch.toUpperCase()})</td></tr>
-                    <tr><td colspan="8" style="text-align:center; font-weight: bold; background-color: #f8fafc;">Período: ${dateMode === 'diario' ? singleDate : startDate + ' al ' + endDate}</td></tr>
-                    <tr><td colspan="8"></td></tr>
+                    <tr><td colspan="9" class="header">REPORTE FINANCIERO - ACUPUNTURA HK (${viewMode === 'global' ? 'GLOBAL' : branch.toUpperCase()})</td></tr>
+                    <tr><td colspan="9" style="text-align:center; font-weight: bold; background-color: #f8fafc;">Período: ${dateMode === 'diario' ? singleDate : startDate + ' al ' + endDate}</td></tr>
+                    <tr><td colspan="9"></td></tr>
                     
-                    <!-- RESUMEN GLOBAL -->
-                    <tr><td colspan="8" style="font-weight:bold; background-color:#333; color:white; text-align:center; font-size: 16px;">RESUMEN GENERAL</td></tr>
-                    <tr><td colspan="4" class="summary-title">TOTAL EFECTIVO</td><td colspan="4" class="summary-val">$${breakdownTotal.efectivo.toFixed(2)}</td></tr>
-                    <tr><td colspan="4" class="summary-title">TOTAL TARJETAS</td><td colspan="4" class="summary-val">$${breakdownTotal.tarjeta.toFixed(2)}</td></tr>
-                    <tr><td colspan="4" class="summary-title">TOTAL TRANSFERENCIAS</td><td colspan="4" class="summary-val">$${breakdownTotal.transferencia.toFixed(2)}</td></tr>
-                    <tr><td colspan="4" style="font-weight:bold; background-color:#0f172a; color:white;">GRAN TOTAL VENTAS</td><td colspan="4" style="font-weight:bold; background-color:#0f172a; color:#10b981; text-align:right; font-size:16px;">$${breakdownTotal.total.toFixed(2)}</td></tr>
-                    <tr><td colspan="8"></td></tr>
-
-                    <!-- EMPRESA A: ACUPUNTURA -->
-                    <tr><td colspan="8" style="font-weight:bold; background-color:#0288d1; color:white; text-align:center; font-size: 16px;">${(t('acupuntura') || 'ACUPUNTURA').toUpperCase()}</td></tr>
-                    <tr><th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Cliente</th><th>Servicio Clínico</th><th>Visitas</th><th>Pago</th><th>Importe</th></tr>
-        `;
-        consultasFiltradas.forEach(c => { htmlTable += `<tr><td>#${c.folio.toString().padStart(5, '0')}</td><td>${c.fecha}</td><td>${c.sucursal}</td><td>${c.cliente}</td><td>${c.articulo}</td><td style="text-align:center; font-weight:bold; color:#0288d1;">${c.cantidad}</td><td>${c.metodo_pago.toUpperCase()}</td><td>$${c.importe.toFixed(2)}</td></tr>`; });
-        htmlTable += `
-                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalEfectivo') || 'Subtotal Efectivo'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownA.efectivo.toFixed(2)}</td></tr>
-                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalTarjeta') || 'Subtotal Tarjeta'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownA.tarjeta.toFixed(2)}</td></tr>
-                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalTransferencia') || 'Subtotal Transf.'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownA.transferencia.toFixed(2)}</td></tr>
-                    <tr><td colspan="6" style="text-align:right; font-weight:bold; font-size:14px; color:#0288d1;">TOTAL ${(t('acupuntura') || 'ACUPUNTURA').toUpperCase()} (${totalCantidadConsultas} Visitas):</td><td colspan="2" style="font-weight:bold; font-size:14px; color:#0288d1; text-align:right;">$${breakdownA.total.toFixed(2)}</td></tr>
-                    <tr><td colspan="8"></td></tr>
-                    
-                    <!-- EMPRESA B: HUANQIU -->
-                    <tr><td colspan="8" style="font-weight:bold; background-color:#f57c00; color:white; text-align:center; font-size: 16px;">${(t('huanqiu') || 'HUANQIU').toUpperCase()}</td></tr>
-                    <tr><th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Cliente</th><th>Producto / Extra</th><th>Cant</th><th>Pago</th><th>Importe</th></tr>
-        `;
-        // 🚀 CORRECCIÓN EXACTA APLICADA AQUÍ: Se cambió c.cantidad por p.cantidad
-        productosFiltrados.forEach(p => { htmlTable += `<tr><td>#${p.folio.toString().padStart(5, '0')}</td><td>${p.fecha}</td><td>${p.sucursal}</td><td>${p.cliente}</td><td>${p.articulo}</td><td style="text-align:center; font-weight:bold; color:#f57c00;">${p.cantidad}</td><td>${p.metodo_pago.toUpperCase()}</td><td>$${p.importe.toFixed(2)}</td></tr>`; });
-        htmlTable += `
-                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalEfectivo') || 'Subtotal Efectivo'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownB.efectivo.toFixed(2)}</td></tr>
-                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalTarjeta') || 'Subtotal Tarjeta'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownB.tarjeta.toFixed(2)}</td></tr>
-                    <tr><td colspan="6" style="text-align:right; color:#555;">${t('subtotalTransferencia') || 'Subtotal Transf.'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownB.transferencia.toFixed(2)}</td></tr>
-                    <tr><td colspan="6" style="text-align:right; font-weight:bold; font-size:14px; color:#f57c00;">TOTAL ${(t('huanqiu') || 'HUANQIU').toUpperCase()}:</td><td colspan="2" style="font-weight:bold; font-size:14px; color:#f57c00; text-align:right;">$${breakdownB.total.toFixed(2)}</td></tr>
-                </table></body></html>
+                    <tr><td colspan="9" style="font-weight:bold; background-color:#333; color:white; text-align:center; font-size: 16px;">RESUMEN GENERAL</td></tr>
+                    <tr><td colspan="4" class="summary-title">TOTAL EFECTIVO</td><td colspan="5" class="summary-val">$${breakdownTotal.efectivo.toFixed(2)}</td></tr>
+                    <tr><td colspan="4" class="summary-title">TOTAL TARJETAS</td><td colspan="5" class="summary-val">$${breakdownTotal.tarjeta.toFixed(2)}</td></tr>
+                    <tr><td colspan="4" class="summary-title">TOTAL TRANSFERENCIAS</td><td colspan="5" class="summary-val">$${breakdownTotal.transferencia.toFixed(2)}</td></tr>
+                    <tr><td colspan="4" style="font-weight:bold; background-color:#0f172a; color:white;">GRAN TOTAL VENTAS</td><td colspan="5" style="font-weight:bold; background-color:#0f172a; color:#10b981; text-align:right; font-size:16px;">$${breakdownTotal.total.toFixed(2)}</td></tr>
+                    <tr><td colspan="9"></td></tr>
         `;
 
+        Object.keys(consultasPorDoctor).sort().forEach(docName => {
+            const consultasDelDoctor = consultasPorDoctor[docName];
+            const breakdownDoc = desglosarVentas(consultasDelDoctor);
+            const visitasDoc = consultasDelDoctor.reduce((acc, item) => acc + item.cantidad, 0);
+
+            htmlTable += `
+                    <tr><td colspan="9" style="font-weight:bold; background-color:#0288d1; color:white; text-align:center; font-size: 15px;">${(t('acupuntura') || 'ACUPUNTURA').toUpperCase()} - ${docName.toUpperCase()}</td></tr>
+                    <tr><th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Cliente</th><th>Servicio Clínico</th><th>Notas</th><th>Visitas</th><th>Pago</th><th>Importe</th></tr>
+            `;
+            consultasDelDoctor.forEach(c => { 
+                htmlTable += `<tr><td style="mso-number-format:'\@';">#${c.folio.toString().padStart(5, '0')}</td><td>${c.fecha}</td><td>${c.sucursal}</td><td>${c.cliente}</td><td>${c.articulo}</td><td>${c.notas || ''}</td><td style="text-align:center; font-weight:bold; color:#0288d1;">${c.cantidad}</td><td>${c.metodo_pago.toUpperCase()}</td><td>$${c.importe.toFixed(2)}</td></tr>`; 
+            });
+            htmlTable += `
+                    <tr><td colspan="7" style="text-align:right; color:#555;">${t('subtotalEfectivo') || 'Subtotal Efectivo'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownDoc.efectivo.toFixed(2)}</td></tr>
+                    <tr><td colspan="7" style="text-align:right; color:#555;">${t('subtotalTarjeta') || 'Subtotal Tarjeta'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownDoc.tarjeta.toFixed(2)}</td></tr>
+                    <tr><td colspan="7" style="text-align:right; color:#555;">${t('subtotalTransferencia') || 'Subtotal Transf.'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownDoc.transferencia.toFixed(2)}</td></tr>
+                    <tr><td colspan="7" style="text-align:right; font-weight:bold; font-size:14px; color:#0288d1;">TOTAL ${docName.toUpperCase()} (${visitasDoc} Visitas):</td><td colspan="2" style="font-weight:bold; font-size:14px; color:#0288d1; text-align:right;">$${breakdownDoc.total.toFixed(2)}</td></tr>
+                    <tr><td colspan="9"></td></tr>
+            `;
+        });
+
+        if (productosFiltrados.length > 0) {
+            htmlTable += `
+                    <tr><td colspan="9" style="font-weight:bold; background-color:#f57c00; color:white; text-align:center; font-size: 16px;">${(t('huanqiu') || 'HUANQIU').toUpperCase()}</td></tr>
+                    <tr><th>Folio</th><th>Fecha</th><th>Sucursal</th><th>Cliente</th><th>Producto / Extra</th><th>Notas</th><th>Cant</th><th>Pago</th><th>Importe</th></tr>
+            `;
+            productosFiltrados.forEach(p => { 
+                htmlTable += `<tr><td style="mso-number-format:'\@';">#${p.folio.toString().padStart(5, '0')}</td><td>${p.fecha}</td><td>${p.sucursal}</td><td>${p.cliente}</td><td>${p.articulo}</td><td>${p.notas || ''}</td><td style="text-align:center; font-weight:bold; color:#f57c00;">${p.cantidad}</td><td>${p.metodo_pago.toUpperCase()}</td><td>$${p.importe.toFixed(2)}</td></tr>`; 
+            });
+            htmlTable += `
+                    <tr><td colspan="7" style="text-align:right; color:#555;">${t('subtotalEfectivo') || 'Subtotal Efectivo'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownB.efectivo.toFixed(2)}</td></tr>
+                    <tr><td colspan="7" style="text-align:right; color:#555;">${t('subtotalTarjeta') || 'Subtotal Tarjeta'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownB.tarjeta.toFixed(2)}</td></tr>
+                    <tr><td colspan="7" style="text-align:right; color:#555;">${t('subtotalTransferencia') || 'Subtotal Transf.'}:</td><td colspan="2" style="color:#555; text-align:right;">$${breakdownB.transferencia.toFixed(2)}</td></tr>
+                    <tr><td colspan="7" style="text-align:right; font-weight:bold; font-size:14px; color:#f57c00;">TOTAL ${(t('huanqiu') || 'HUANQIU').toUpperCase()}:</td><td colspan="2" style="font-weight:bold; font-size:14px; color:#f57c00; text-align:right;">$${breakdownB.total.toFixed(2)}</td></tr>
+            `;
+        }
+
+        htmlTable += `</table></body></html>`;
         const blob = new Blob([htmlTable], { type: 'application/vnd.ms-excel' });
         const link = document.createElement("a");
         link.setAttribute("href", URL.createObjectURL(blob));
@@ -393,15 +432,15 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 .card h3 { margin: 0 0 10px 0; font-size: 13px; color: #333; text-transform: uppercase; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
                 .card .val { font-size: 24px; font-weight: bold; color: #111; margin-bottom: 10px; }
                 .card .detail { font-size: 11px; color: #555; display: flex; justify-content: space-between; margin-bottom: 3px; }
-                table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 11px; }
-                th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 10px; }
+                th, td { border: 1px solid #ccc; padding: 5px; text-align: left; }
                 th { background-color: #e0e0e0; font-weight: bold; color: #111; }
-                .section-title { font-size: 16px; color: #d32f2f; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px; page-break-after: avoid; }
+                .section-title { font-size: 16px; color: #d32f2f; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px; page-break-after: avoid; margin-top: 20px; }
             </style>
             </head><body>
                 <div class="header">
                     <h1 class="title">ACUPUNTURA H.K. - ${t('reporteFinancieroDoc') || 'Reporte Financiero'}</h1>
-                    <div class="subtitle">Sucursal: ${branch.toUpperCase()} &nbsp;|&nbsp; Período: ${periodStr}</div>
+                    <div class="subtitle">Sucursal: ${viewMode === 'global' ? 'Global' : branch.toUpperCase()} &nbsp;|&nbsp; Período: ${periodStr}</div>
                 </div>
 
                 <div class="summary-grid">
@@ -433,33 +472,22 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         <h3>Gran Total Ventas</h3>
                         <div class="val" style="color:#d32f2f;">$${breakdownTotal.total.toFixed(2)}</div>
                         <div class="detail" style="margin-bottom:6px; border-bottom: 1px dashed transparent; padding-bottom:4px;">&nbsp;</div>
-                        <div class="detail"><span>Efectivo:</span> <span>$${breakdownTotal.efectivo.toFixed(2)}</span></div>
-                        <div class="detail"><span>Tarjetas:</span> <span>$${breakdownTotal.tarjeta.toFixed(2)}</span></div>
-                        <div class="detail"><span>Transf:</span> <span>$${breakdownTotal.transferencia.toFixed(2)}</span></div>
+                        <div class="detail"><span>Efectivo Total:</span> <span>$${breakdownTotal.efectivo.toFixed(2)}</span></div>
+                        <div class="detail"><span>Tarjetas Total:</span> <span>$${breakdownTotal.tarjeta.toFixed(2)}</span></div>
+                        <div class="detail"><span>Transf Total:</span> <span>$${breakdownTotal.transferencia.toFixed(2)}</span></div>
                     </div>
                 </div>
 
                 <h2 class="section-title">Detalle de Consultas (${t('acupuntura') || 'Acupuntura'})</h2>
                 <table>
-                    <thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Servicios Agrupados</th><th>Visitas</th><th>Pago</th><th>Importe</th></tr></thead>
-                    <tbody>${consultasFiltradas.map(c => `<tr><td>#${c.folio.toString().padStart(5, '0')}</td><td>${c.fecha}</td><td>${c.cliente}</td><td>${c.articulo}</td><td style="text-align:center; font-weight:bold; color:#0288d1;">${c.cantidad}</td><td>${c.metodo_pago.toUpperCase()}</td><td>$${c.importe.toFixed(2)}</td></tr>`).join('')}</tbody>
+                    <thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Doctor</th><th>Servicios Agrupados</th><th>Notas</th><th>Visitas</th><th>Pago</th><th>Importe</th></tr></thead>
+                    <tbody>${consultasFiltradas.map(c => `<tr><td>#${c.folio.toString().padStart(5, '0')}</td><td>${c.fecha}</td><td>${c.cliente}</td><td>${c.doctor}</td><td>${c.articulo}</td><td>${c.notas || ''}</td><td style="text-align:center; font-weight:bold; color:#0288d1;">${c.cantidad}</td><td>${c.metodo_pago.toUpperCase()}</td><td>$${c.importe.toFixed(2)}</td></tr>`).join('')}</tbody>
                 </table>
 
                 <h2 class="section-title">Detalle de Productos y Extras (${t('huanqiu') || 'Huanqiu'})</h2>
                 <table>
                     <thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Producto Extra</th><th>Cant</th><th>Pago</th><th>Importe</th></tr></thead>
                     <tbody>${productosFiltrados.map(p => `<tr><td>#${p.folio.toString().padStart(5, '0')}</td><td>${p.fecha}</td><td>${p.cliente}</td><td>${p.articulo}</td><td style="text-align:center; font-weight:bold; color:#f57c00;">${p.cantidad}</td><td>${p.metodo_pago.toUpperCase()}</td><td>$${p.importe.toFixed(2)}</td></tr>`).join('')}</tbody>
-                </table>
-
-                <h2 class="section-title">Auditoría de Movimientos de Caja</h2>
-                <table>
-                    <thead><tr><th colspan="2">Fecha y Hora</th><th colspan="2">Movimiento</th><th colspan="3">Motivo / Detalles</th><th>Importe</th></tr></thead>
-                    <tbody>${cajaFiltrada.map(m => {
-                        const isNegative = m.tipo === 'retiro_manual' || m.tipo === 'corte_caja';
-                        const sign = isNegative ? '-' : '+';
-                        const desc = m.tipo === 'corte_caja' ? 'Cierre de Turno y Auditoría' : m.motivo;
-                        return `<tr><td colspan="2">${parseDBDate(m.fecha).toLocaleString()}</td><td colspan="2">${m.tipo.replace('_', ' ').toUpperCase()}</td><td colspan="3">${desc}</td><td>${sign}$${Math.abs(parseFloat(m.monto)).toFixed(2)}</td></tr>`;
-                    }).join('')}</tbody>
                 </table>
                 <div style="text-align:center; font-size:10px; color:#999; margin-top:30px;">${t('generadoAuto') || 'Generado automáticamente por el sistema'}</div>
             </body></html>
@@ -469,6 +497,66 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         printWindow.focus();
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 800);
     };
+
+    // 🚀 LÓGICA ESTADÍSTICA ESTRICTA PARA GRÁFICOS
+    const sucursalesStats = { 1: { nombre: 'Nápoles', total: 0, consultas: 0, productos: 0, tickets: new Set() }, 2: { nombre: 'Obrera', total: 0, consultas: 0, productos: 0, tickets: new Set() }, 3: { nombre: 'Pedregal', total: 0, consultas: 0, productos: 0, tickets: new Set() } };
+    rawVentas.forEach(v => {
+        if(sucursalesStats[v.sucursal_id]) {
+            sucursalesStats[v.sucursal_id].total += parseFloat(v.total);
+            sucursalesStats[v.sucursal_id].tickets.add(v.id);
+            
+            const isClinical = v.venta_detalles?.some(det => det.productos?.es_consulta === true);
+            
+            v.venta_detalles?.forEach(det => {
+                const tipo = det.productos?.tipo || 'producto';
+                const nom = (det.productos?.nombre || '').toLowerCase();
+                
+                if (isClinical && tipo === 'servicio') {
+                    // 🚀 Solo cuenta visitas si el nombre dice 'consulta'
+                    if(nom.includes('consulta')) sucursalesStats[v.sucursal_id].consultas += det.cantidad;
+                } else {
+                    sucursalesStats[v.sucursal_id].productos += det.cantidad;
+                }
+            });
+        }
+    });
+
+    const chartDataSucursales = Object.values(sucursalesStats).map(s => ({
+        name: s.nombre,
+        Ingresos: s.total,
+        Consultas: s.consultas,
+        TicketPromedio: s.tickets.size > 0 ? (s.total / s.tickets.size) : 0
+    }));
+
+    const doctoresStats = {};
+    rawVentas.filter(v => v.doctor_id).forEach(v => {
+        const docId = v.doctor_id;
+        if (!doctoresStats[docId]) doctoresStats[docId] = { nombre: doctoresCatalog.find(d => d.id === docId)?.nombre || 'Desconocido', ingresos: 0, consultas: 0, pacientes: {} };
+        
+        let subtotalDoc = 0; let consultasDoc = 0;
+        const isClinical = v.venta_detalles?.some(det => det.productos?.es_consulta === true);
+        
+        v.venta_detalles?.forEach(det => {
+            const tipo = det.productos?.tipo || 'producto';
+            const nom = (det.productos?.nombre || '').toLowerCase();
+            
+            if (isClinical && tipo === 'servicio') {
+                subtotalDoc += (det.cantidad * det.precio_unitario);
+                // 🚀 Solo suma consultas al médico si dice 'consulta'
+                if(nom.includes('consulta')) consultasDoc += det.cantidad;
+            }
+        });
+
+        doctoresStats[docId].ingresos += subtotalDoc;
+        doctoresStats[docId].consultas += consultasDoc;
+        if (v.clientes?.nombre) doctoresStats[docId].pacientes[v.clientes.nombre] = (doctoresStats[docId].pacientes[v.clientes.nombre] || 0) + 1;
+    });
+
+    const chartDataDoctores = Object.values(doctoresStats).map(d => ({
+        name: d.nombre.split(' ')[0], 
+        Consultas: d.consultas,
+        Ingresos: d.ingresos
+    }));
 
     const getEtiquetaCaja = (tipo) => {
         if (tipo === 'venta_efectivo') return <span style={{background: 'rgba(22, 163, 74, 0.1)', color: 'var(--success)', padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold'}}><i className="fa-solid fa-basket-shopping"></i> {t('ventaEfectivoAbrev') || 'Venta'}</span>;
@@ -532,7 +620,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     return (
         <div suppressHydrationWarning className="view-section active animate-fade-in" style={{flexDirection: 'column', gap: '25px', overflowY: 'auto', paddingRight: '5px'}}>
             
-            {/* 🚀 PANEL DE NAVEGACIÓN Y FECHAS */}
+            {/* PANEL DE NAVEGACIÓN Y FECHAS */}
             <div className="panel" style={{display: 'flex', flexDirection: 'column', gap: '20px', padding: '25px', borderRadius: '16px', boxShadow: 'var(--shadow-sm)'}}>
                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed var(--border-color)', paddingBottom: '20px'}}>
                     <div style={{display: 'flex', gap: '10px'}}>
@@ -540,8 +628,13 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         <button className={`btn-action ${dateMode === 'periodo' ? 'btn-primary' : ''}`} onClick={() => setDateMode('periodo')} style={{padding: '10px 20px', borderRadius: '30px'}}><i className="fa-solid fa-calendar-week"></i> {t('reportePeriodo') || 'Período'}</button>
                     </div>
                     <div style={{display: 'flex', gap: '10px'}}>
-                        <button className={`btn-action ${viewMode === 'sucursal' ? 'btn-primary' : ''}`} onClick={() => setViewMode('sucursal')} style={{padding: '10px 20px', borderRadius: '30px'}}><i className="fa-solid fa-store"></i> {t('vistaSucursal') || 'Sucursal'} ({branch.toUpperCase()})</button>
-                        {perfilActual?.rol === 'admin' && <button className={`btn-action ${viewMode === 'global' ? 'btn-primary' : ''}`} onClick={() => setViewMode('global')} style={{padding: '10px 20px', borderRadius: '30px'}}><i className="fa-solid fa-globe"></i> {t('vistaGlobal') || 'Global'}</button>}
+                        <button className={`btn-action ${viewMode === 'sucursal' ? 'btn-primary' : ''}`} onClick={() => {setViewMode('sucursal'); setActiveTab('clinica');}} style={{padding: '10px 20px', borderRadius: '30px'}}><i className="fa-solid fa-store"></i> {t('vistaSucursal') || 'Sucursal'} ({branch.toUpperCase()})</button>
+                        {perfilActual?.rol === 'admin' && (
+                            <>
+                                <button className={`btn-action ${viewMode === 'global' ? 'btn-primary' : ''}`} onClick={() => {setViewMode('global'); setActiveTab('clinica');}} style={{padding: '10px 20px', borderRadius: '30px'}}><i className="fa-solid fa-globe"></i> {t('vistaGlobal') || 'Global'}</button>
+                                <button className={`btn-action ${viewMode === 'comparativas' ? 'btn-primary' : ''}`} onClick={() => {setViewMode('comparativas'); setActiveTab('sucursales');}} style={{padding: '10px 20px', borderRadius: '30px', background: viewMode === 'comparativas' ? '#9333ea' : 'transparent', color: viewMode === 'comparativas' ? 'white' : 'var(--text-main)', borderColor: viewMode === 'comparativas' ? '#9333ea' : 'var(--border-color)'}}><i className="fa-solid fa-chart-pie"></i> {t('comparativasGrales') || 'Comparativas'}</button>
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -559,21 +652,167 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                             </>
                         )}
                     </div>
-                    <div style={{display: 'flex', gap: '15px'}}>
-                        <button className="btn-action" onClick={exportarExcelPremium} style={{background: 'rgba(46, 125, 50, 0.1)', color: 'var(--success)', border: '1px solid var(--success)', padding: '12px 20px', borderRadius: '10px', fontWeight: 'bold', transition: '0.3s'}} onMouseEnter={e => {e.currentTarget.style.background = 'var(--success)'; e.currentTarget.style.color = 'white';}} onMouseLeave={e => {e.currentTarget.style.background = 'rgba(46, 125, 50, 0.1)'; e.currentTarget.style.color = 'var(--success)';}}><i className="fa-solid fa-file-excel"></i> {t('exportarExcel') || 'Exportar Excel'}</button>
-                        <button className="btn-action" onClick={generarReportePDF} style={{background: 'rgba(211, 47, 47, 0.1)', color: 'var(--primary-red)', border: '1px solid var(--primary-red)', padding: '12px 20px', borderRadius: '10px', fontWeight: 'bold', transition: '0.3s'}} onMouseEnter={e => {e.currentTarget.style.background = 'var(--primary-red)'; e.currentTarget.style.color = 'white';}} onMouseLeave={e => {e.currentTarget.style.background = 'rgba(211, 47, 47, 0.1)'; e.currentTarget.style.color = 'var(--primary-red)';}}><i className="fa-solid fa-file-pdf"></i> {t('imprimirReporte') || 'Imprimir Reporte'}</button>
-                    </div>
+                    {viewMode !== 'comparativas' && (
+                        <div style={{display: 'flex', gap: '15px'}}>
+                            <button className="btn-action" onClick={exportarExcelPremium} style={{background: 'rgba(46, 125, 50, 0.1)', color: 'var(--success)', border: '1px solid var(--success)', padding: '12px 20px', borderRadius: '10px', fontWeight: 'bold', transition: '0.3s'}} onMouseEnter={e => {e.currentTarget.style.background = 'var(--success)'; e.currentTarget.style.color = 'white';}} onMouseLeave={e => {e.currentTarget.style.background = 'rgba(46, 125, 50, 0.1)'; e.currentTarget.style.color = 'var(--success)';}}><i className="fa-solid fa-file-excel"></i> {t('exportarExcel') || 'Exportar Excel'}</button>
+                            <button className="btn-action" onClick={generarReportePDF} style={{background: 'rgba(211, 47, 47, 0.1)', color: 'var(--primary-red)', border: '1px solid var(--primary-red)', padding: '12px 20px', borderRadius: '10px', fontWeight: 'bold', transition: '0.3s'}} onMouseEnter={e => {e.currentTarget.style.background = 'var(--primary-red)'; e.currentTarget.style.color = 'white';}} onMouseLeave={e => {e.currentTarget.style.background = 'rgba(211, 47, 47, 0.1)'; e.currentTarget.style.color = 'var(--primary-red)';}}><i className="fa-solid fa-file-pdf"></i> {t('imprimirReporte') || 'Imprimir Reporte'}</button>
+                        </div>
+                    )}
                 </div>
             </div>
 
             {loading ? (
                 <div style={{textAlign: 'center', padding: '80px', color: 'var(--accent)'}}><i className="fa-solid fa-circle-notch fa-spin fa-3x"></i><p style={{marginTop:'15px', fontWeight: 'bold'}}>{t('analizandoFinanzas') || 'Analizando finanzas...'}</p></div>
+            ) : viewMode === 'comparativas' ? (
+                
+                /* 🚀 VISTA DE COMPARATIVAS CON GRÁFICOS RECHARTS MODERNO */
+                <div className="animate-fade-in" style={{display: 'flex', flexDirection: 'column', gap: '20px'}}>
+                    <div style={{display: 'flex', gap: '30px', borderBottom: '2px solid var(--border-color)'}}>
+                        <button onClick={() => setActiveTab('sucursales')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'sucursales' ? '3px solid #9333ea' : '3px solid transparent', color: activeTab === 'sucursales' ? '#9333ea' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s'}}><i className="fa-solid fa-building" style={{marginRight: '8px'}}></i> {t('tabSucursales') || 'Comparativa Sucursales'}</button>
+                        <button onClick={() => setActiveTab('doctores')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'doctores' ? '3px solid #0288d1' : '3px solid transparent', color: activeTab === 'doctores' ? '#0288d1' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> {t('tabDoctores') || 'Productividad Médica'}</button>
+                    </div>
+
+                    <div className="panel" style={{padding: '30px', borderRadius: '0 0 16px 16px', borderTop: 'none'}}>
+                        
+                        {/* TAB SUCURSALES CON GRÁFICO TIPO ÁREA */}
+                        {activeTab === 'sucursales' && (
+                            <div className="animate-slide-up">
+                                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px'}}>
+                                    <h3 style={{margin: 0, color: 'var(--text-main)'}}><i className="fa-solid fa-chart-pie" style={{color: '#9333ea', marginRight: '10px'}}></i> {t('comparativaSucursales') || 'Análisis por Sucursal'}</h3>
+                                    <div style={{display: 'flex', background: 'var(--bg-main)', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)'}}>
+                                        <button onClick={() => setChartType('ingresos')} style={{padding: '8px 15px', background: chartType === 'ingresos' ? '#9333ea' : 'transparent', color: chartType === 'ingresos' ? 'white' : 'var(--text-muted)', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', transition:'all 0.2s'}}>Ingresos</button>
+                                        <button onClick={() => setChartType('consultas')} style={{padding: '8px 15px', background: chartType === 'consultas' ? '#0288d1' : 'transparent', color: chartType === 'consultas' ? 'white' : 'var(--text-muted)', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', transition:'all 0.2s'}}>Consultas</button>
+                                        <button onClick={() => setChartType('ticket')} style={{padding: '8px 15px', background: chartType === 'ticket' ? '#10b981' : 'transparent', color: chartType === 'ticket' ? 'white' : 'var(--text-muted)', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', transition:'all 0.2s'}}>Ticket Prom.</button>
+                                    </div>
+                                </div>
+
+                                {rawVentas.length === 0 ? <p style={{color: 'var(--text-muted)'}}>{t('sinDatosSucursales') || 'No hay datos'}</p> : (
+                                    <>
+                                        <div style={{height: '320px', width: '100%', marginBottom: '30px', background: 'var(--bg-main)', borderRadius: '16px', padding: '20px 20px 0 0', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)'}}>
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <AreaChart data={chartDataSucursales} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                                                    <defs>
+                                                        <linearGradient id="colorDynamic" x1="0" y1="0" x2="0" y2="1">
+                                                            <stop offset="5%" stopColor={chartType === 'ingresos' ? '#9333ea' : (chartType === 'consultas' ? '#0288d1' : '#10b981')} stopOpacity={0.6}/>
+                                                            <stop offset="95%" stopColor={chartType === 'ingresos' ? '#9333ea' : (chartType === 'consultas' ? '#0288d1' : '#10b981')} stopOpacity={0}/>
+                                                        </linearGradient>
+                                                    </defs>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
+                                                    <XAxis dataKey="name" stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 'bold'}} axisLine={false} tickLine={false} dy={10} />
+                                                    <YAxis stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)', fontSize: '0.85rem'}} axisLine={false} tickLine={false} tickFormatter={(value) => chartType === 'consultas' ? value : `$${value}`} />
+                                                    <Tooltip cursor={{stroke: 'var(--text-muted)', strokeWidth: 1, strokeDasharray: '3 3'}} contentStyle={{background: 'rgba(30, 41, 59, 0.8)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontWeight: 'bold'}} itemStyle={{color: '#fff'}} />
+                                                    <Area type="monotone" dataKey={chartType === 'ingresos' ? 'Ingresos' : (chartType === 'consultas' ? 'Consultas' : 'TicketPromedio')} stroke={chartType === 'ingresos' ? '#9333ea' : (chartType === 'consultas' ? '#0288d1' : '#10b981')} strokeWidth={4} fillOpacity={1} fill="url(#colorDynamic)" animationDuration={1500} />
+                                                </AreaChart>
+                                            </ResponsiveContainer>
+                                        </div>
+
+                                        <table className="data-table" style={{border: '1px solid var(--border-color)', borderRadius: '12px'}}>
+                                            <thead style={{background: 'var(--bg-main)'}}>
+                                                <tr>
+                                                    <th style={{padding: '15px'}}>{t('sucursal') || 'Sucursal'}</th>
+                                                    <th>{t('totalVentas') || 'Ingresos Totales'}</th>
+                                                    <th>{t('consultas') || 'Consultas Acup.'}</th>
+                                                    <th>{t('productos') || 'Extras Huanqiu'}</th>
+                                                    <th>{t('ticketsTotales') || 'Tickets'}</th>
+                                                    <th>{t('ticketPromedio') || 'Ticket Promedio'}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {Object.keys(sucursalesStats).map((sucId, idx) => {
+                                                    const s = sucursalesStats[sucId];
+                                                    const ticketProm = s.tickets.size > 0 ? (s.total / s.tickets.size) : 0;
+                                                    return (
+                                                        <tr key={sucId} style={{animationDelay: `${idx * 0.1}s`}}>
+                                                            <td style={{padding: '15px', fontWeight: 'bold', color: 'var(--text-main)'}}>{s.nombre}</td>
+                                                            <td style={{color: 'var(--success)', fontWeight: '900', fontSize: '1.1rem'}}>${s.total.toFixed(2)}</td>
+                                                            <td style={{color: '#0288d1', fontWeight: 'bold'}}>{s.consultas}</td>
+                                                            <td style={{color: '#f57c00', fontWeight: 'bold'}}>{s.productos}</td>
+                                                            <td style={{fontWeight: 'bold', color: 'var(--text-main)'}}>{s.tickets.size}</td>
+                                                            <td style={{color: 'var(--accent)', fontWeight: 'bold'}}>${ticketProm.toFixed(2)}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        {/* TAB COMPARATIVA DOCTORES CON GRÁFICO HORIZONTAL MODERNO */}
+                        {activeTab === 'doctores' && (
+                            <div className="animate-slide-up">
+                                <h3 style={{marginBottom: '20px', color: 'var(--text-main)'}}><i className="fa-solid fa-stethoscope" style={{color: '#0288d1', marginRight: '10px'}}></i> {t('comparativaDoctores') || 'Desempeño por Doctor'}</h3>
+                                {Object.keys(doctoresStats).length === 0 ? <p style={{color: 'var(--text-muted)'}}>{t('sinDatosDoctores') || 'No hay consultas asignadas a doctores en este período.'}</p> : (
+                                    <>
+                                        <div style={{height: '250px', width: '100%', marginBottom: '30px', background: 'var(--bg-main)', borderRadius: '16px', padding: '20px 20px 20px 0', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)'}}>
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <BarChart data={chartDataDoctores} margin={{ top: 0, right: 30, left: 10, bottom: 0 }} layout="vertical" barCategoryGap="20%">
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" horizontal={false} />
+                                                    <XAxis type="number" stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)', fontSize: '0.85rem'}} axisLine={false} tickLine={false} />
+                                                    <YAxis dataKey="name" type="category" stroke="var(--text-main)" tick={{fill: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.9rem'}} axisLine={false} tickLine={false} width={100} />
+                                                    <Tooltip cursor={{fill: 'var(--bg-panel)', opacity: 0.5}} contentStyle={{background: 'rgba(30, 41, 59, 0.8)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontWeight: 'bold'}} itemStyle={{color: '#0288d1'}} />
+                                                    <Bar dataKey="Consultas" fill="#0288d1" radius={[0, 10, 10, 0]} animationDuration={1500} background={{ fill: 'var(--bg-panel)', radius: [0, 10, 10, 0] }} />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+
+                                        <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px'}}>
+                                            {Object.keys(doctoresStats).map((docId, idx) => {
+                                                const doc = doctoresStats[docId];
+                                                let retencionCount = 0;
+                                                Object.values(doc.pacientes).forEach(visitas => { if(visitas > 1) retencionCount++; });
+                                                const totalPacientes = Object.keys(doc.pacientes).length;
+                                                const indiceRetencion = totalPacientes > 0 ? ((retencionCount / totalPacientes) * 100).toFixed(1) : 0;
+
+                                                return (
+                                                    <div key={docId} style={{background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '25px', boxShadow: 'var(--shadow-sm)', animationDelay: `${idx * 0.1}s`}}>
+                                                        <div style={{display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px', borderBottom: '1px dashed var(--border-color)', paddingBottom: '15px'}}>
+                                                            <div style={{width: '50px', height: '50px', background: 'rgba(2, 136, 209, 0.1)', color: '#0288d1', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem'}}><i className="fa-solid fa-user-doctor"></i></div>
+                                                            <div>
+                                                                <h4 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.1rem'}}>{doc.nombre}</h4>
+                                                                <span style={{color: 'var(--text-muted)', fontSize: '0.8rem'}}>Productividad General</span>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px'}}>
+                                                            <span style={{color: 'var(--text-muted)'}}>{t('consultasAtendidas') || 'Consultas Atendidas'}:</span>
+                                                            <strong style={{color: '#0288d1', fontSize: '1.1rem'}}>{doc.consultas}</strong>
+                                                        </div>
+                                                        <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px'}}>
+                                                            <span style={{color: 'var(--text-muted)'}}>{t('ingresoGenerado') || 'Ingreso Generado'}:</span>
+                                                            <strong style={{color: 'var(--success)', fontSize: '1.1rem'}}>${doc.ingresos.toFixed(2)}</strong>
+                                                        </div>
+                                                        <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px'}}>
+                                                            <span style={{color: 'var(--text-muted)'}}>{t('pacientesUnicos') || 'Pacientes Únicos'}:</span>
+                                                            <strong style={{color: 'var(--text-main)'}}>{totalPacientes}</strong>
+                                                        </div>
+                                                        
+                                                        {/* INDICADOR DE RETENCIÓN ESTILO APPLE FITNESS */}
+                                                        <div style={{background: 'rgba(147, 51, 234, 0.05)', padding: '15px', borderRadius: '12px', marginTop: '15px', border: '1px solid rgba(147, 51, 234, 0.2)', position: 'relative', overflow: 'hidden'}}>
+                                                            <div style={{position: 'absolute', right: '-15px', bottom: '-15px', opacity: 0.1, fontSize: '4rem', color: '#9333ea'}}><i className="fa-solid fa-rotate-right"></i></div>
+                                                            <span style={{color: '#9333ea', fontSize: '0.85rem', fontWeight: 'bold', display: 'block', marginBottom: '5px', position: 'relative', zIndex: 1}}>{t('indiceRetencion') || 'Índice de Retención'}</span>
+                                                            <div style={{display: 'flex', alignItems: 'flex-end', gap: '10px', position: 'relative', zIndex: 1}}>
+                                                                <span style={{fontSize: '2rem', fontWeight: '900', color: '#9333ea', lineHeight: '1'}}>{indiceRetencion}%</span>
+                                                                <span style={{color: 'var(--text-muted)', fontSize: '0.75rem', paddingBottom: '4px'}}>pacientes volvieron</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
             ) : (
+                /* 🚀 VISTA NORMAL (SUCURSAL / GLOBAL) */
                 <>
-                    {/* 🚀 DASHBOARD DE 4 TARJETAS PREMIUM */}
+                    {/* DASHBOARD DE 4 TARJETAS PREMIUM */}
                     <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px'}}>
                         
-                        {/* 1. CAJA FÍSICA (Emerald) */}
                         <div className="dash-card-premium animate-slide-up" style={{ '--card-color': '#10b981', position: 'relative', overflow: 'hidden', animationDelay: '0.1s' }}>
                             <div style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'linear-gradient(135deg, #0f172a 0%, #064e3b 100%)', zIndex: 0}}></div>
                             <div style={{position: 'relative', zIndex: 1, color: 'white'}}>
@@ -673,6 +912,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                             {renderHeader(t('fecha') || 'Fecha', 'fecha', listaConsultas, filtersA, setFiltersA)}
                                             {renderHeader(t('sucursalEmisora') || 'Sucursal', 'sucursal', listaConsultas, filtersA, setFiltersA, viewMode === 'global')}
                                             {renderHeader(t('clientes') || 'Cliente', 'cliente', listaConsultas, filtersA, setFiltersA)}
+                                            {renderHeader(t('doctor') || 'Doctor', 'doctor', listaConsultas, filtersA, setFiltersA)}
                                             {renderHeader(t('servicioClinico') || 'Servicios Agrupados', 'articulo', listaConsultas, filtersA, setFiltersA)}
                                             {renderHeader(t('cantidadAbrev') || 'Visitas', 'cantidad', listaConsultas, filtersA, setFiltersA)}
                                             {renderHeader(t('metPago') || 'Pago', 'metodo_pago', listaConsultas, filtersA, setFiltersA)}
@@ -685,14 +925,18 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                                 <td style={{fontFamily: 'monospace', color: 'var(--text-muted)'}}>#{item.folio.toString().padStart(5, '0')}</td>
                                                 <td style={{fontSize: '0.85rem', color: 'var(--text-main)'}}>{item.fecha}</td>
                                                 {viewMode === 'global' && <td style={{color: 'var(--text-main)'}}>{item.sucursal}</td>}
-                                                <td><strong style={{color: 'var(--text-main)'}}>{item.cliente}</strong></td>
+                                                <td>
+                                                    <strong style={{color: 'var(--text-main)', display:'block'}}>{item.cliente}</strong>
+                                                    {item.notas && <span style={{fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic'}}><i className="fa-solid fa-comment-dots"></i> {item.notas}</span>}
+                                                </td>
+                                                <td style={{color: 'var(--text-main)', fontSize: '0.9rem'}}><i className="fa-solid fa-stethoscope" style={{color: 'var(--text-muted)', marginRight: '4px'}}></i> {item.doctor}</td>
                                                 <td style={{color: '#0288d1', fontWeight: 'bold', fontSize: '0.85rem'}}>{item.articulo}</td>
                                                 <td style={{textAlign: 'center'}}><span style={{background: 'rgba(2, 136, 209, 0.1)', color: '#0288d1', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold'}}>{item.cantidad}</span></td>
                                                 <td><span style={{fontSize: '0.75rem', background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 10px', borderRadius: '20px', fontWeight: '600'}}>{item.metodo_pago.toUpperCase()}</span></td>
                                                 <td style={{fontWeight: '900', color: 'var(--text-main)', fontSize: '1.1rem'}}>${item.importe.toFixed(2)}</td>
                                             </tr>
                                         ))}
-                                        {consultasFiltradas.length === 0 && <tr><td colSpan={viewMode === 'global' ? 8 : 7} style={{textAlign: 'center', padding: '60px', color: 'var(--text-muted)'}}><i className="fa-solid fa-folder-open fa-3x" style={{marginBottom: '15px', opacity: 0.3, display: 'block'}}></i> {t('sinDatosClinica') || 'No se encontraron ventas de clínica.'}</td></tr>}
+                                        {consultasFiltradas.length === 0 && <tr><td colSpan={viewMode === 'global' ? 9 : 8} style={{textAlign: 'center', padding: '60px', color: 'var(--text-muted)'}}><i className="fa-solid fa-folder-open fa-3x" style={{marginBottom: '15px', opacity: 0.3, display: 'block'}}></i> {t('sinDatosClinica') || 'No se encontraron ventas de clínica.'}</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
@@ -720,7 +964,10 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                                 <td style={{fontFamily: 'monospace', color: 'var(--text-muted)'}}>#{item.folio.toString().padStart(5, '0')}</td>
                                                 <td style={{fontSize: '0.85rem', color: 'var(--text-main)'}}>{item.fecha}</td>
                                                 {viewMode === 'global' && <td style={{color: 'var(--text-main)'}}>{item.sucursal}</td>}
-                                                <td><strong style={{color: 'var(--text-main)'}}>{item.cliente}</strong></td>
+                                                <td>
+                                                    <strong style={{color: 'var(--text-main)', display:'block'}}>{item.cliente}</strong>
+                                                    {item.notas && <span style={{fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic'}}><i className="fa-solid fa-comment-dots"></i> {item.notas}</span>}
+                                                </td>
                                                 <td style={{color: '#f57c00', fontWeight: 'bold'}}>{item.articulo}</td>
                                                 <td style={{textAlign: 'center'}}><span style={{background: 'rgba(245, 124, 0, 0.1)', color: '#f57c00', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold'}}>{item.cantidad}</span></td>
                                                 <td><span style={{fontSize: '0.75rem', background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 10px', borderRadius: '20px', fontWeight: '600'}}>{item.metodo_pago.toUpperCase()}</span></td>
@@ -760,7 +1007,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                                 <td style={{textAlign: 'center'}}>
                                                     {mov.tipo === 'corte_caja' && (
                                                         <div style={{display: 'flex', gap: '8px', justifyContent: 'center'}}>
-                                                            <button onClick={() => {setShiftToView(visualizarTurnoPasado(mov, index));}} className="btn-action" style={{background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '6px 12px', borderRadius: '8px', fontWeight: 'bold'}} title={t('detalleBtn') || 'Ver Detalles'}>
+                                                            <button onClick={() => {setShiftToView(visualizarTurnoPasado(mov));}} className="btn-action" style={{background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '6px 12px', borderRadius: '8px', fontWeight: 'bold'}} title={t('detalleBtn') || 'Ver Detalles'}>
                                                                 <i className="fa-solid fa-eye"></i> {t('detalleBtn') || 'Detalle'}
                                                             </button>
                                                             <button onClick={() => verTicketHistorico(mov)} className="btn-action" style={{background: 'rgba(2, 132, 199, 0.1)', color: 'var(--accent)', border: '1px solid rgba(2, 132, 199, 0.3)', padding: '6px 12px', borderRadius: '8px', fontWeight: 'bold'}} title={t('reimprimirBtn') || 'Reimprimir'}>
@@ -780,7 +1027,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 </>
             )}
 
-            {/* 🚀 MODAL DE VISUALIZACIÓN DE TURNOS PASADOS */}
+            {/* MODAL DE VISUALIZACIÓN DE TURNOS PASADOS */}
             {shiftToView && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '600px', border: '1px solid var(--border-color)', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden'}}>
@@ -866,10 +1113,12 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 .pulse-glow { animation: pulseGlow 3s ease-in-out infinite alternate; }
                 
                 .animate-slide-up-row { opacity: 0; animation: slideUpRow 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+                .animate-slide-up { opacity: 0; animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
 
                 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
                 @keyframes scaleIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
                 @keyframes slideUpRow { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
                 @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
                 @keyframes pulseGlow { 0% { text-shadow: 0 4px 20px rgba(0,0,0,0.2); } 100% { text-shadow: 0 4px 30px rgba(16, 185, 129, 0.5); } }
             `}</style>
