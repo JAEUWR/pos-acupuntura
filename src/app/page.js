@@ -214,7 +214,7 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                     {activeView === 'doctores' && <ConsumosMedicos branch={branch} />}
                     {activeView === 'inventario' && <Inventario branch={branch} />}
                     {activeView === 'promociones' && <Promociones />}
-                    {activeView === 'clientes' && <Clientes />}
+                    {activeView === 'clientes' && <Clientes branch={branch} perfilActual={perfil}/>}
                     {activeView === 'escritorioMedico' && <EscritorioMedico branch={branch} perfilActual={perfil} />}
                     {activeView === 'configuracion' && <Configuracion perfilActual={perfil} />}
                 </div>

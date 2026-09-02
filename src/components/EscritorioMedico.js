@@ -6,7 +6,6 @@ import { useLanguage } from '../context/LanguageContext';
 export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
     const { t } = useLanguage();
     
-    // 🚀 FIX HIDRATACIÓN: Controlamos cuándo estamos en el cliente para formatear fechas
     const [isMounted, setIsMounted] = useState(false);
     useEffect(() => { setIsMounted(true); }, []);
 
@@ -25,9 +24,18 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
     const [pacienteSeleccionado, setPacienteSeleccionado] = useState(null);
     const [tabActiva, setTabActiva] = useState('historia'); // 'historia' | 'evolucion' | 'consentimientos'
     
-    // ESTADOS: Alta Rápida de Paciente
+    // 🚀 NUEVOS ESTADOS DE VISTA (Directorios y Legacy)
+    const [activeSucursalTab, setActiveSucursalTab] = useState('todas');
+    const [showLegacyClients, setShowLegacyClients] = useState(false);
+    const [sucursalesDB, setSucursalesDB] = useState([]);
+
+    // ESTADOS: Alta Rápida de Paciente (ESTRICTA)
     const [showNewPatientModal, setShowNewPatientModal] = useState(false);
-    const [npForm, setNpForm] = useState({ nombre: '', telefono: '', fecha_nacimiento: '', sexo: '' });
+    const [npNombres, setNpNombres] = useState('');
+    const [npApellidos, setNpApellidos] = useState('');
+    const [npTelefono, setNpTelefono] = useState('');
+    const [npFechaNacimiento, setNpFechaNacimiento] = useState('');
+    const [npSexo, setNpSexo] = useState('');
 
     // ESTADOS: Hoja de Referencia Médica
     const [showReferenciaModal, setShowReferenciaModal] = useState(false);
@@ -59,15 +67,20 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
     const [vistaConsentimiento, setVistaConsentimiento] = useState('lista');
     const [cForm, setCForm] = useState({ testigo_1: '', testigo_2: '', acepta: false });
 
+    // 🚀 Lógica robusta de sucursal
     const branchIdMap = { napoles: 1, obrera: 2, pedregal: 3 };
-    const sucursalId = branchIdMap[branch] || 1;
+    const sucursalId = branchIdMap[(branch || '').toLowerCase()] || 1;
+
+    const fetchPacientesYSucursales = async () => {
+        const { data: sucursales } = await supabase.from('sucursales').select('id, nombre').order('id');
+        if (sucursales) setSucursalesDB(sucursales);
+
+        const { data } = await supabase.from('clientes').select('*, alertas_clinicas(id, tipo_alerta, descripcion, nivel_gravedad, activa)').order('nombre', { ascending: true });
+        if (data) setPacientes(data);
+    };
 
     useEffect(() => {
-        const fetchPacientes = async () => {
-            const { data } = await supabase.from('clientes').select('*, alertas_clinicas(id, tipo_alerta, descripcion, nivel_gravedad, activa)').order('nombre', { ascending: true });
-            if (data) setPacientes(data);
-        };
-        fetchPacientes();
+        fetchPacientesYSucursales();
     }, []);
 
     useEffect(() => {
@@ -89,6 +102,11 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         };
         fetchExpediente();
     }, [pacienteSeleccionado]);
+
+    const formatUpperCase = (str) => {
+        if (!str) return '';
+        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+    };
 
     const guardarHistoria = async (firmar = false) => {
         if (firmar && (!hForm.motivo_consulta || !hForm.diagnostico_cie || !hForm.plan_tratamiento)) return alert(t('alertaFaltanCamposHistoria') || 'Para firmar, debes llenar al menos el Motivo, Diagnóstico y Plan.');
@@ -126,7 +144,6 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
     const guardarNota = async (firmar = false) => {
         if (firmar) {
-            // 🚀 FIX: Validación flexible y amigable para la firma de notas
             if (!nForm.evolucion && !nForm.procedimiento_tecnica && !nForm.diagnostico_sesion) {
                 return alert(t('normaFirmaNota') || 'Por norma, no puedes firmar con campos vacíos. Describe la evolución, el procedimiento o el diagnóstico de la sesión.');
             }
@@ -151,7 +168,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         
         const printWindow = window.open('', '_blank');
         let htmlContent = `
-            <html><head><title>Diagnóstico - ${pacienteSeleccionado.num_expediente}</title>
+            <html><head><title>Diagnóstico - ${pacienteSeleccionado.codigo_expediente || 'S/E'}</title>
             <style>
                 body { font-family: 'Helvetica', 'Arial', sans-serif; padding: 40px; color: #000; line-height: 1.5; font-size: 14px; background: white; }
                 .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 30px; }
@@ -172,7 +189,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                         <td style="text-align: right;"><strong>Fecha:</strong> ${formatDateOnly(nForm.fecha_registro || new Date())}</td>
                     </tr>
                     <tr>
-                        <td><strong>Expediente:</strong> ${pacienteSeleccionado.num_expediente || 'S/E'}</td>
+                        <td><strong>Expediente:</strong> ${pacienteSeleccionado.codigo_expediente || 'S/E'}</td>
                         <td style="text-align: right;"><strong>Terapeuta:</strong> ${nForm.medico_nombre || perfilActual?.nombre}</td>
                     </tr>
                 </table>
@@ -198,28 +215,48 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 800);
     };
 
+    // 🚀 LÓGICA DE ALTA RÁPIDA ESTANDARIZADA
     const guardarPacienteRapido = async () => {
-        if (!npForm.nombre || !npForm.telefono || !npForm.fecha_nacimiento || !npForm.sexo) {
-            return alert(t('alertaCamposMinimos') || 'Nombre, Teléfono, Fecha de Nacimiento y Sexo son obligatorios.');
+        if (!npNombres || !npApellidos || !npTelefono || !npFechaNacimiento || !npSexo) {
+            return alert(t('alertaCamposMinimos') || 'Nombres, Apellidos, Teléfono, Fecha de Nacimiento y Sexo son obligatorios.');
+        }
+
+        const nombresNorm = npNombres.trim();
+        const apellidosNorm = npApellidos.trim();
+        const fullName = `${nombresNorm} ${apellidosNorm}`;
+
+        // Verificamos si existe por nombre exacto o teléfono
+        const duplicado = pacientes.find(p => (p.telefono === npTelefono) || (p.nombres === nombresNorm && p.apellidos === apellidosNorm));
+        if (duplicado) {
+            return alert(`🚨 ERROR: El paciente "${fullName}" ya existe o el teléfono está registrado en el expediente de ${duplicado.nombre}.`);
         }
 
         const payload = {
-            nombre: npForm.nombre.trim(),
-            telefono: npForm.telefono.trim(),
-            fecha_nacimiento: npForm.fecha_nacimiento,
-            sexo: npForm.sexo,
-            sucursal_alta_id: sucursalId
+            nombre: fullName,
+            nombres: nombresNorm,
+            apellidos: apellidosNorm,
+            telefono: npTelefono.trim(),
+            fecha_nacimiento: npFechaNacimiento,
+            sexo: npSexo,
+            sucursal_registro_id: sucursalId
         };
 
         const { data, error } = await supabase.from('clientes').insert([payload]).select();
         if (error) return alert((t('errorRegistrar') || 'Error al registrar: ') + error.message);
 
-        const nuevoPaciente = { ...data[0], alertas_clinicas: [] };
+        const newId = data[0].id;
+        const yearMonth = new Date().getFullYear().toString().slice(-2) + (new Date().getMonth() + 1).toString().padStart(2, '0');
+        const branchLetter = (branch || 'Napoles').charAt(0).toUpperCase();
+        const expCode = `HK-${branchLetter}-${yearMonth}-${newId.toString().padStart(4, '0')}`;
+        
+        await supabase.from('clientes').update({ codigo_expediente: expCode }).eq('id', newId);
+
+        const nuevoPaciente = { ...data[0], codigo_expediente: expCode, alertas_clinicas: [] };
         
         setPacientes(prev => [...prev, nuevoPaciente].sort((a, b) => a.nombre.localeCompare(b.nombre)));
         setPacienteSeleccionado(nuevoPaciente);
         setShowNewPatientModal(false);
-        setNpForm({ nombre: '', telefono: '', fecha_nacimiento: '', sexo: '' });
+        setNpNombres(''); setNpApellidos(''); setNpTelefono(''); setNpFechaNacimiento(''); setNpSexo('');
         alert(t('expedienteCreadoExito') || 'Expediente creado exitosamente.');
     };
 
@@ -266,7 +303,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         
         const printWindow = window.open('', '_blank');
         let htmlContent = `
-            <html><head><title>Hoja de Referencia - ${pacienteSeleccionado.num_expediente}</title>
+            <html><head><title>Hoja de Referencia - ${pacienteSeleccionado.codigo_expediente || 'S/E'}</title>
             <style>
                 body { font-family: 'Helvetica', 'Arial', sans-serif; padding: 40px; color: #000; line-height: 1.5; font-size: 14px; background: white; }
                 .header { text-align: center; border-bottom: 3px solid #000; padding-bottom: 20px; margin-bottom: 30px; }
@@ -288,7 +325,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                 <div class="box">
                     <h3>DATOS DEL PACIENTE</h3>
                     <span class="label">Nombre del Paciente:</span> <div class="dato">${pacienteSeleccionado.nombre}</div>
-                    <span class="label">Expediente Clínico / CURP:</span> <div class="dato">${pacienteSeleccionado.num_expediente} / ${pacienteSeleccionado.curp || 'N/A'}</div>
+                    <span class="label">Expediente Clínico / CURP:</span> <div class="dato">${pacienteSeleccionado.codigo_expediente || 'S/E'} / ${pacienteSeleccionado.curp || 'N/A'}</div>
                     <span class="label">Edad / Sexo:</span> <div class="dato">${pacienteSeleccionado.sexo}</div>
                 </div>
                 <div class="box">
@@ -314,7 +351,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         let htmlContent = `
             <html>
             <head>
-                <title>Expediente Clínico - ${pacienteSeleccionado.num_expediente}</title>
+                <title>Expediente Clínico - ${pacienteSeleccionado.codigo_expediente || 'S/E'}</title>
                 <style>
                     body { font-family: 'Helvetica', 'Arial', sans-serif; padding: 40px; color: #000; line-height: 1.5; font-size: 12px; background: white;}
                     .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 20px; }
@@ -335,7 +372,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                 <h2>IDENTIFICACIÓN DEL PACIENTE</h2>
                 <div class="info-grid">
                     <div><span class="label">Nombre:</span> ${pacienteSeleccionado.nombre}</div>
-                    <div><span class="label">Expediente:</span> ${pacienteSeleccionado.num_expediente}</div>
+                    <div><span class="label">Expediente:</span> ${pacienteSeleccionado.codigo_expediente || 'S/E'}</div>
                     <div><span class="label">CURP:</span> ${pacienteSeleccionado.curp || 'No proporcionado'}</div>
                     <div><span class="label">Sexo / Teléfono:</span> ${pacienteSeleccionado.sexo} / ${pacienteSeleccionado.telefono}</div>
                 </div>`;
@@ -361,28 +398,73 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 800);
     };
 
-    const pacientesFiltrados = pacientes.filter(p => p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || (p.num_expediente && p.num_expediente.toLowerCase().includes(searchTerm.toLowerCase())));
+    // 🚀 FILTRO QUIRÚRGICO (Búsqueda + Ocultar Legacy + Carpetas de Sucursal)
+    const pacientesFiltrados = pacientes.filter(p => {
+        const isLegacy = p.codigo_expediente && p.codigo_expediente.includes('LEGACY');
+        
+        // 1. Regla Legacy
+        if (!showLegacyClients && isLegacy) return false;
+
+        // 2. Regla de Búsqueda
+        const busqueda = searchTerm.toLowerCase().trim();
+        if (busqueda !== '') {
+            return (p.nombre && p.nombre.toLowerCase().includes(busqueda)) || 
+                   (p.telefono && p.telefono.includes(busqueda)) ||
+                   (p.codigo_expediente && p.codigo_expediente.toLowerCase().includes(busqueda));
+        }
+
+        // 3. Regla de Pestañas
+        if (activeSucursalTab !== 'todas') {
+            return p.sucursal_registro_id === activeSucursalTab;
+        }
+
+        return true;
+    });
 
     return (
         <div className="view-section active" style={{ display: 'flex', gap: '20px', overflow: 'hidden', height: '100%' }}>
             
-            {/* PANEL IZQUIERDO: LISTA DE PACIENTES */}
-            <div className="panel" style={{ width: '350px', flex: 'none', display: 'flex', flexDirection: 'column', padding: '25px 20px', borderRight: '1px solid var(--border-color)', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
+            {/* PANEL IZQUIERDO: DIRECTORIO MÉDICO */}
+            <div className="panel" style={{ width: '400px', flex: 'none', display: 'flex', flexDirection: 'column', padding: '25px 20px', borderRight: '1px solid var(--border-color)', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
-                    <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.2rem'}}><i className="fa-solid fa-users-medical" style={{color: 'var(--accent)', marginRight: '8px'}}></i> {t('misPacientes') || 'Mis Pacientes'}</h3>
+                    <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.2rem'}}><i className="fa-solid fa-users-medical" style={{color: 'var(--accent)', marginRight: '8px'}}></i> Mis Pacientes</h3>
                 </div>
 
-                <div style={{display: 'flex', gap: '10px', marginBottom: '20px'}}>
+                <div style={{display: 'flex', gap: '10px', marginBottom: '15px'}}>
                     <div style={{position: 'relative', flex: 1}}>
                         <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '12px', top: '14px', color: 'var(--text-muted)'}}></i>
-                        <input type="text" placeholder={t('buscarPaciente') || 'Buscar paciente...'} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{width: '100%', padding: '12px 12px 12px 35px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem'}} />
+                        <input type="text" placeholder="Buscar expediente..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{width: '100%', padding: '12px 12px 12px 35px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem'}} />
                     </div>
-                    <button className="btn-action btn-primary" onClick={() => setShowNewPatientModal(true)} style={{padding: '0 15px', borderRadius: '8px', boxShadow: '0 4px 10px rgba(2, 132, 199, 0.2)'}} title="Alta Rápida"><i className="fa-solid fa-user-plus"></i></button>
+                    {/* Botón Ocultar/Mostrar Legacy */}
+                    <button 
+                        onClick={() => setShowLegacyClients(!showLegacyClients)}
+                        style={{padding: '12px', background: showLegacyClients ? 'rgba(2, 136, 209, 0.1)' : 'var(--bg-main)', color: showLegacyClients ? '#0288d1' : 'var(--text-muted)', border: `1px solid ${showLegacyClients ? '#0288d1' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.3s'}}
+                        title="Alternar pacientes antiguos"
+                    >
+                        <i className={`fa-solid ${showLegacyClients ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                    </button>
                 </div>
+
+                {/* 🚀 PESTAÑAS CARPETAS POR SUCURSAL */}
+                <div style={{display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '10px', scrollbarWidth: 'none'}}>
+                    <button onClick={() => setActiveSucursalTab('todas')} style={{padding: '6px 12px', background: activeSucursalTab === 'todas' ? 'var(--text-main)' : 'var(--bg-panel)', color: activeSucursalTab === 'todas' ? 'var(--bg-panel)' : 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '15px', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap'}}>
+                        Todos
+                    </button>
+                    {sucursalesDB.map(suc => {
+                        return (
+                            <button key={suc.id} onClick={() => setActiveSucursalTab(suc.id)} style={{padding: '6px 12px', background: activeSucursalTab === suc.id ? '#0288d1' : 'var(--bg-panel)', color: activeSucursalTab === suc.id ? 'white' : 'var(--text-muted)', border: activeSucursalTab === suc.id ? '1px solid #0288d1' : '1px solid var(--border-color)', borderRadius: '15px', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap'}}>
+                                {suc.nombre}
+                            </button>
+                        );
+                    })}
+                </div>
+                
+                <button className="btn-primary" onClick={() => setShowNewPatientModal(true)} style={{padding: '12px', borderRadius: '8px', width: '100%', marginBottom: '20px', fontSize: '0.9rem'}}><i className="fa-solid fa-plus" style={{marginRight: '8px'}}></i> Alta Rápida de Paciente</button>
 
                 <div style={{flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px', paddingRight: '5px'}}>
                     {pacientesFiltrados.map(p => {
                         const isSelected = pacienteSeleccionado?.id === p.id;
+                        const isLegacy = p.codigo_expediente && p.codigo_expediente.includes('LEGACY');
                         return (
                             <div 
                                 key={p.id} 
@@ -395,8 +477,14 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                     boxShadow: isSelected ? '0 4px 10px rgba(0,0,0,0.05)' : 'none'
                                 }}
                             >
-                                <strong style={{display: 'block', color: isSelected ? 'var(--accent)' : 'var(--text-main)', fontSize: '0.95rem', marginBottom: '4px'}}>{p.nombre}</strong>
-                                <span style={{fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace', background: 'var(--bg-panel)', padding: '2px 6px', borderRadius: '4px'}}>EXP: {p.num_expediente || 'S/E'}</span>
+                                <strong style={{display: 'block', color: isSelected ? 'var(--accent)' : 'var(--text-main)', fontSize: '0.95rem', marginBottom: '6px'}}>{p.nombre}</strong>
+                                <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                    {p.codigo_expediente ? (
+                                        <span style={{background: isLegacy ? 'rgba(234, 88, 12, 0.1)' : 'rgba(2, 136, 209, 0.1)', color: isLegacy ? '#ea580c' : '#0288d1', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold'}}>
+                                            <i className="fa-solid fa-folder-open" style={{marginRight: '4px'}}></i> {p.codigo_expediente}
+                                        </span>
+                                    ) : <span style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>S/E</span>}
+                                </div>
                             </div>
                         )
                     })}
@@ -414,7 +502,9 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                 <span style={{color: 'var(--text-muted)', fontSize: '0.9rem'}}>
                                     <i className="fa-solid fa-person-half-dress" style={{marginRight: '5px'}}></i> {pacienteSeleccionado.sexo} <span style={{margin: '0 10px', opacity: 0.3}}>|</span> 
                                     <i className="fa-regular fa-id-card" style={{marginRight: '5px'}}></i> {pacienteSeleccionado.curp || 'Sin CURP'} <span style={{margin: '0 10px', opacity: 0.3}}>|</span> 
-                                    <span style={{background: 'rgba(2, 132, 199, 0.1)', color: 'var(--accent)', padding: '3px 8px', borderRadius: '4px', fontWeight: 'bold'}}>{pacienteSeleccionado.num_expediente}</span>
+                                    {pacienteSeleccionado.codigo_expediente && (
+                                        <span style={{background: pacienteSeleccionado.codigo_expediente.includes('LEGACY') ? 'rgba(234, 88, 12, 0.1)' : 'rgba(2, 132, 199, 0.1)', color: pacienteSeleccionado.codigo_expediente.includes('LEGACY') ? '#ea580c' : 'var(--accent)', padding: '3px 8px', borderRadius: '4px', fontWeight: 'bold'}}>{pacienteSeleccionado.codigo_expediente}</span>
+                                    )}
                                 </span>
                             </div>
                             <div style={{display: 'flex', gap: '15px', alignItems: 'center'}}>
@@ -553,7 +643,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                 <div style={{background: 'rgba(2, 132, 199, 0.03)', padding: '25px', borderRadius: '12px', border: '1px dashed var(--accent)', marginBottom: '30px'}}>
                                                     <h4 style={{color: 'var(--accent)', marginBottom: '15px'}}><i className="fa-solid fa-notes-medical"></i> {t('resumenSesionImpresion') || 'Resumen de Sesión (Para Impresión)'}</h4>
                                                     <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px'}}>
-                                                        <div style={{gridColumn: '1 / -1'}}><label className="form-label">{t('puntosAcupuntura') || 'Puntos de Acupuntura Utilizados'}</label><input type="text" value={nForm.puntos_acupuntura} onChange={(e) => setNForm({...nForm, puntos_acupuntura: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" placeholder="Ej. IG4, E36, PC6..." /></div>
+                                                        <div style={{gridColumn: '1 / -1'}}><label className="form-label">{t('puntosAcupuntura') || 'Puntos de Acupuntura Utilizados'}</label><input type="text" value={nForm.puntos_acupuntura} onChange={(e) => setNForm({...nForm, puntos_acupuntura: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" placeholder="Ej. IG4, E36, PC6..." style={{textTransform: 'uppercase'}} /></div>
                                                         <div><label className="form-label">{t('tiempoRetencion') || 'Tiempo de Retención (Minutos)'}</label><input type="number" value={nForm.tiempo_retencion_minutos} onChange={(e) => setNForm({...nForm, tiempo_retencion_minutos: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" placeholder="Ej. 20" /></div>
                                                         <div><label className="form-label">{t('sesionesRequeridas') || 'Sesiones Requeridas (Sugeridas)'}</label><input type="number" value={nForm.sesiones_requeridas} onChange={(e) => setNForm({...nForm, sesiones_requeridas: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" placeholder="Ej. 5" /></div>
                                                         <div style={{gridColumn: '1 / -1'}}><label className="form-label">{t('diagnosticoSesion') || 'Diagnóstico de la Sesión (Dictamen)'}</label><textarea value={nForm.diagnostico_sesion} onChange={(e) => setNForm({...nForm, diagnostico_sesion: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="2" placeholder="Diagnóstico final para el paciente..."></textarea></div>
@@ -605,8 +695,12 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                 ) : (
                                                     consentimientos.map(c => (
                                                         <div key={c.id} style={{background: 'var(--bg-main)', padding: '25px', border: '1px solid var(--border-color)', borderLeft: '5px solid var(--success)', borderRadius: '10px'}}>
-                                                            <h4 style={{margin: '0 0 15px 0', color: 'var(--text-main)', fontSize: '1.1rem'}}><i className="fa-solid fa-check-circle" style={{color: 'var(--success)', marginRight: '8px'}}></i> {c.tipo_procedimiento}</h4>
+                                                            <h4 style={{margin: '0 0 15px 0', color: 'var(--text-main)', fontSize: '1.1rem'}}><i className="fa-solid fa-check-circle" style={{color: 'var(--success)', marginRight: '8px'}}></i> {c.tipo_procedimiento || 'Acupuntura Tradicional'}</h4>
                                                             <p style={{fontSize: '0.9rem', color: 'var(--text-muted)', fontStyle: 'italic', marginBottom: '15px'}}>"{c.texto_legal}"</p>
+                                                            <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '15px'}}>
+                                                                <span><strong>Testigos:</strong> {c.testigo_1_nombre} y {c.testigo_2_nombre}</span>
+                                                                <span><strong>Hash:</strong> {c.firma_hash}</span>
+                                                            </div>
                                                         </div>
                                                     ))
                                                 )}
@@ -619,8 +713,8 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                 <p style={{fontSize: '0.95rem', color: 'var(--text-main)', lineHeight: '1.6'}}>{t('textoLegalAcupuntura')}</p>
                                             </div>
                                             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px'}}>
-                                                <div><label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('testigo1')} *</label><input type="text" value={cForm.testigo_1} onChange={e => setCForm({...cForm, testigo_1: e.target.value})} style={{width: '100%', padding: '15px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px'}} /></div>
-                                                <div><label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('testigo2')} *</label><input type="text" value={cForm.testigo_2} onChange={e => setCForm({...cForm, testigo_2: e.target.value})} style={{width: '100%', padding: '15px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px'}} /></div>
+                                                <div><label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('testigo1')} *</label><input type="text" value={cForm.testigo_1} onChange={e => setCForm({...cForm, testigo_1: formatUpperCase(e.target.value)})} style={{width: '100%', padding: '15px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', textTransform: 'uppercase'}} /></div>
+                                                <div><label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('testigo2')} *</label><input type="text" value={cForm.testigo_2} onChange={e => setCForm({...cForm, testigo_2: formatUpperCase(e.target.value)})} style={{width: '100%', padding: '15px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', textTransform: 'uppercase'}} /></div>
                                             </div>
                                             <label style={{display: 'flex', alignItems: 'center', gap: '15px', cursor: 'pointer', background: 'rgba(22, 163, 74, 0.05)', padding: '20px', borderRadius: '10px', border: '1px dashed var(--success)', marginBottom: '35px'}}>
                                                 <input type="checkbox" checked={cForm.acepta} onChange={e => setCForm({...cForm, acepta: e.target.checked})} style={{width: '24px', height: '24px', accentColor: 'var(--success)'}} />
@@ -648,20 +742,32 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                 )}
             </div>
 
-            {/* MODAL ALTA RÁPIDA */}
+            {/* MODAL ALTA RÁPIDA (ESTRICTO) */}
             {showNewPatientModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '40px', borderRadius: '16px', width: '500px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-lg)', textAlign: 'left'}}>
                         <h3 style={{marginBottom: '10px', color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-user-plus" style={{color: 'var(--accent)', marginRight: '10px'}}></i> Alta Rápida</h3>
                         <p style={{fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '30px'}}>Campos mínimos requeridos por norma. Recepción puede completar el resto después.</p>
+                        
                         <div style={{display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '35px'}}>
-                            <div><label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>Nombre Completo *</label><input type="text" value={npForm.nombre} onChange={e => setNpForm({...npForm, nombre: e.target.value})} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px'}} /></div>
-                            <div><label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>Teléfono *</label><input type="text" value={npForm.telefono} onChange={e => setNpForm({...npForm, telefono: e.target.value})} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px'}} /></div>
+                            <div>
+                                <label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>Nombres *</label>
+                                <input type="text" value={npNombres} onChange={e => setNpNombres(formatUpperCase(e.target.value))} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', textTransform: 'uppercase'}} />
+                            </div>
+                            <div>
+                                <label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>Apellidos *</label>
+                                <input type="text" value={npApellidos} onChange={e => setNpApellidos(formatUpperCase(e.target.value))} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', textTransform: 'uppercase'}} />
+                            </div>
+                            <div>
+                                <label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>Teléfono *</label>
+                                <input type="text" value={npTelefono} onChange={e => setNpTelefono(e.target.value)} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px'}} />
+                            </div>
                             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
-                                <div><label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>Fecha Nac. *</label><input type="date" value={npForm.fecha_nacimiento} onChange={e => setNpForm({...npForm, fecha_nacimiento: e.target.value})} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer'}} /></div>
-                                <div><label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>Sexo *</label><select value={npForm.sexo} onChange={e => setNpForm({...npForm, sexo: e.target.value})} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer'}}><option value="">-- Seleccionar --</option><option value="Femenino">Femenino</option><option value="Masculino">Masculino</option><option value="Otro">Otro</option></select></div>
+                                <div><label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>Fecha Nac. *</label><input type="date" value={npFechaNacimiento} onChange={e => setNpFechaNacimiento(e.target.value)} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer'}} /></div>
+                                <div><label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>Sexo *</label><select value={npSexo} onChange={e => setNpSexo(e.target.value)} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer'}}><option value="">-- Seleccionar --</option><option value="Femenino">Femenino</option><option value="Masculino">Masculino</option><option value="Otro">Otro</option></select></div>
                             </div>
                         </div>
+                        
                         <div style={{display: 'flex', gap: '15px'}}>
                             <button className="btn-action" onClick={() => setShowNewPatientModal(false)} style={{flex: 1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', fontWeight: 'bold'}}>Cancelar</button>
                             <button className="btn-primary" onClick={guardarPacienteRapido} style={{flex: 1, padding: '16px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer'}}><i className="fa-solid fa-save"></i> Crear Expediente</button>

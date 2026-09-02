@@ -21,7 +21,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const [tipoTarjeta, setTipoTarjeta] = useState('debito');
     const [montosMixtos, setMontosMixtos] = useState({ efectivo: '', tarjeta: '', transferencia: '' });
 
-    // ESTADOS PARA CHECKOUT BLINDADO
     const [saleNotes, setSaleNotes] = useState('');
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [selectedDoctor, setSelectedDoctor] = useState('');
@@ -32,17 +31,21 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const [showCatalogModal, setShowCatalogModal] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [showNewClientModal, setShowNewClientModal] = useState(false);
-    const [newClientName, setNewClientName] = useState('');
+    
+    const [newClientNombres, setNewClientNombres] = useState('');
+    const [newClientApellidos, setNewClientApellidos] = useState('');
     const [newClientPhone, setNewClientPhone] = useState('');
 
     const [showClientSearchModal, setShowClientSearchModal] = useState(false);
     const [clientSearchTerm, setClientSearchTerm] = useState('');
+    
+    // 🚀 NUEVO ESTADO PARA OCULTAR/MOSTRAR PACIENTES ANTIGUOS
+    const [showLegacyClients, setShowLegacyClients] = useState(false);
 
     const branchIdMap = { napoles: 1, obrera: 2, pedregal: 3 };
     const sucursalId = branchIdMap[branch] || 1;
 
     const fetchDatos = async () => {
-        // 🚀 INCLUÍMOS 'stock' EN LA LLAMADA A INVENTARIO
         const { data: prods } = await supabase.from('productos')
             .select('*, inventario(sucursal_id, precio, precio_mayoreo, precio_distribuidor, precio_medico, stock)')
             .eq('activo', true);
@@ -72,8 +75,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
     const fetchHistorialHoy = async () => {
         const hoy = new Date().toISOString().split('T')[0];
-        // 🚀 EXTRAEMOS LA COLUMNA NOTAS PARA MOSTRARLA EN EL HISTORIAL
-        const { data } = await supabase.from('ventas').select(`id, fecha, total, metodo_pago, vendedor_nombre, notas, clientes ( nombre ), venta_detalles ( cantidad, productos ( nombre ) )`).eq('sucursal_id', sucursalId).gte('fecha', `${hoy}T00:00:00`).order('fecha', { ascending: false });
+        const { data } = await supabase.from('ventas').select(`id, fecha, total, metodo_pago, vendedor_nombre, notas, estatus, clientes ( nombre ), venta_detalles ( cantidad, productos ( nombre ) )`).eq('sucursal_id', sucursalId).gte('fecha', `${hoy}T00:00:00`).order('fecha', { ascending: false });
         if (data) setHistorialHoy(data);
     };
 
@@ -126,21 +128,90 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const removeItem = (id) => { setCart(prev => prev.filter(item => item.id !== id)); scannerInputRef.current?.focus(); };
 
     const guardarClienteExpres = async () => {
-        if (!newClientName) return alert(t('camposObligatorios') || 'Faltan campos.');
-        const { data, error } = await supabase.from('clientes').insert([{ nombre: newClientName, telefono: newClientPhone }]).select();
-        if (error) return alert('Error: ' + error.message);
-        setClientesDB([...clientesDB, data[0]].sort((a,b) => a.nombre.localeCompare(b.nombre)));
-        setSelectedClient(data[0].id); setShowNewClientModal(false); setNewClientName(''); setNewClientPhone('');
+        if (!newClientNombres || !newClientApellidos) return alert(t('camposObligatorios') || 'Faltan campos obligatorios (Nombres y Apellidos).');
+        
+        const normalizeStr = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+        
+        const nombresNorm = normalizeStr(newClientNombres);
+        const apellidosNorm = normalizeStr(newClientApellidos);
+        const fullName = `${nombresNorm} ${apellidosNorm}`;
+
+        const { data: dupes } = await supabase.from('clientes')
+            .select('id')
+            .eq('nombres', nombresNorm)
+            .eq('apellidos', apellidosNorm);
+
+        if (dupes && dupes.length > 0) {
+            return alert(`⚠️ El paciente "${fullName}" ya existe en el sistema. Búscalo en la lupa de pacientes.`);
+        }
+
+        const { data, error } = await supabase.from('clientes').insert([{ 
+            nombre: fullName, 
+            nombres: nombresNorm,
+            apellidos: apellidosNorm,
+            telefono: newClientPhone,
+            sucursal_registro_id: sucursalId
+        }]).select();
+
+        if (error) return alert('Error al crear paciente: ' + error.message);
+
+        const newId = data[0].id;
+        const yearMonth = new Date().getFullYear().toString().slice(-2) + (new Date().getMonth() + 1).toString().padStart(2, '0');
+        const branchLetter = branch.charAt(0).toUpperCase();
+        const expCode = `HK-${branchLetter}-${yearMonth}-${newId.toString().padStart(4, '0')}`;
+        
+        await supabase.from('clientes').update({ codigo_expediente: expCode }).eq('id', newId);
+        
+        const clientFinal = { ...data[0], codigo_expediente: expCode };
+
+        setClientesDB([...clientesDB, clientFinal].sort((a,b) => a.nombre.localeCompare(b.nombre)));
+        setSelectedClient(clientFinal.id); 
+        setShowNewClientModal(false); 
+        setNewClientNombres(''); 
+        setNewClientApellidos(''); 
+        setNewClientPhone('');
         setTimeout(() => scannerInputRef.current?.focus(), 50);
     };
 
-    // FUNCIÓN PARA ANCLAR PRODUCTOS RÁPIDOS
     const toggleAccesoRapido = async (prod) => {
         const newState = !prod.acceso_rapido;
         const { error } = await supabase.from('productos').update({ acceso_rapido: newState }).eq('id', prod.id);
         if (!error) {
             setProductosDB(prev => prev.map(p => p.id === prod.id ? { ...p, acceso_rapido: newState } : p));
         }
+    };
+
+    const cancelarVenta = async (venta) => {
+        if (!window.confirm(t('confirmarCancelacion') || `¿Estás seguro de cancelar el folio #${venta.id}?\n\nEsta acción anulará la venta en los reportes financieros y ajustará la caja automáticamente si se pagó en efectivo.`)) return;
+
+        const { error } = await supabase.from('ventas').update({ estatus: 'cancelada' }).eq('id', venta.id);
+        
+        if (error) {
+            alert('Error al cancelar la venta: ' + error.message);
+            return;
+        }
+
+        let montoEfectivo = 0;
+        const pagoLower = venta.metodo_pago.toLowerCase();
+        
+        if (pagoLower === 'efectivo' || pagoLower === 'cash') {
+            montoEfectivo = parseFloat(venta.total);
+        } else if (pagoLower.includes('mixto')) {
+            const match = venta.metodo_pago.match(/Efe:\s*\$?([\d.]+)/i);
+            if (match) montoEfectivo = parseFloat(match[1]);
+        }
+
+        if (montoEfectivo > 0) {
+            await supabase.rpc('registrar_movimiento_caja', {
+                p_sucursal_id: sucursalId,
+                p_tipo: 'retiro_manual',
+                p_monto: -Math.abs(montoEfectivo), 
+                p_motivo: `Ajuste por Cancelación de Folio #${venta.id}`
+            });
+        }
+
+        alert(t('ventaCanceladaExito') || 'Venta cancelada exitosamente.');
+        fetchHistorialHoy(); 
     };
 
     let subtotalBruto = 0;
@@ -252,7 +323,8 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 await supabase.from('ventas').update({ 
                     vendedor_nombre: perfilActual?.nombre || 'Recepcionista',
                     doctor_id: selectedDoctor ? parseInt(selectedDoctor) : null,
-                    notas: saleNotes.trim() || null
+                    notas: saleNotes.trim() || null,
+                    estatus: 'completada' 
                 }).eq('id', latestSale[0].id);
             }
 
@@ -347,7 +419,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                     </div>
                 </div>
                 
-                {/* PANEL DERECHO (AUTO-AJUSTABLE SIN SCROLL EXCESIVO) */}
+                {/* PANEL DERECHO */}
                 <div className="panel" style={{ flex: 1.1, display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
                     
                     <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -379,6 +451,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                 <button onClick={() => setMetodoPago('mixto')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'mixto' ? '#eab308' : 'var(--bg-main)', color: metodoPago === 'mixto' ? 'white' : 'var(--text-main)', border: metodoPago === 'mixto' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-chart-pie" style={{marginRight: '5px'}}></i> Mixto</button>
                             </div>
 
+                            {/* DETALLES DEL PAGO */}
                             {metodoPago === 'efectivo' && (
                                 <div style={{background: 'rgba(22, 163, 74, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid var(--success)'}}>
                                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
@@ -431,7 +504,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             )}
                         </div>
 
-                        {/* 🚀 NOTAS DE VENTA */}
+                        {/* NOTAS DE VENTA */}
                         <div style={{flexShrink: 0}}>
                             <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}><i className="fa-solid fa-pen-to-square" style={{color: 'var(--accent)', marginRight: '5px'}}></i> {t('notasVentaOpcional') || 'Notas de la Venta (Opcional)'}</label>
                             <textarea 
@@ -440,7 +513,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             />
                         </div>
 
-                        {/* 🚀 AÑADIR RÁPIDO (CANTIDAD FLEXIBLE CON SCROLL INTERNO) */}
+                        {/* AÑADIR RÁPIDO */}
                         <div style={{flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px'}}>
                             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                                 <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1rem'}}><i className="fa-solid fa-bolt" style={{color:'var(--accent)', marginRight: '8px'}}></i> {t('anadirRapido')}</h3>
@@ -465,7 +538,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         </div>
                     </div>
 
-                    {/* TOTALES Y BOTÓN DE COBRO (FIJOS AL FONDO) */}
+                    {/* TOTALES Y BOTÓN DE COBRO */}
                     <div style={{ padding: '25px', background: 'var(--bg-panel)', borderTop: '1px solid var(--border-color)', marginTop: 'auto', flexShrink: 0, boxShadow: '0 -4px 20px rgba(0,0,0,0.05)' }}>
                         <div style={{display:'flex', justifyContent:'space-between', color:'var(--text-muted)', marginBottom:'10px', fontSize: '1rem', fontWeight: 'bold'}}><span>{t('subtotal')}</span><span>${subtotalBruto.toFixed(2)}</span></div>
                         <div style={{display:'flex', justifyContent:'space-between', color:'var(--accent)', marginBottom:'15px', fontSize: '1rem', fontWeight: 'bold'}}><span>{t('descuentos')}</span><span>-${totalDescuentos.toFixed(2)}</span></div>
@@ -487,7 +560,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             </div>
 
-            {/* TABLA HISTORIAL DEL DÍA (CON COLUMNA NOTAS) */}
+            {/* TABLA HISTORIAL DEL DÍA (CON FILTRO DE ESTADO Y BOTÓN CANCELAR) */}
             <div className="panel" style={{ flex: '0 0 auto', marginTop: '25px', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
                 <h3 style={{marginBottom: '20px', color: 'var(--text-main)', fontSize: '1.2rem'}}><i className="fa-solid fa-clock-history" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('historialDia')} - {branch.toUpperCase()}</h3>
                 <div style={{maxHeight: '350px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '12px'}}>
@@ -500,39 +573,46 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                 <th>{t('articulos')}</th>
                                 <th>{t('notas') || 'Notas'}</th>
                                 <th>{t('formaPago')}</th>
-                                <th>{t('vendedor')}</th>
-                                <th style={{textAlign: 'right', paddingRight: '25px'}}>{t('total')}</th>
+                                <th style={{textAlign: 'right'}}>{t('total')}</th>
+                                <th style={{textAlign: 'center', paddingRight: '25px'}}>{t('acciones') || 'Acciones'}</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {historialHoy.map(venta => (
-                                <tr key={venta.id}>
-                                    <td style={{fontFamily: 'monospace', color: 'var(--text-muted)', padding: '15px 25px'}}>#{venta.id.toString().padStart(5, '0')}</td>
-                                    <td style={{fontSize: '0.85rem', color: 'var(--text-main)'}}>{new Date(venta.fecha).toLocaleTimeString()}</td>
-                                    <td><strong style={{color: 'var(--text-main)'}}>{venta.clientes?.nombre || t('publicoGeneral')}</strong></td>
-                                    <td>
+                            {historialHoy.map(venta => {
+                                const isCancelada = venta.estatus === 'cancelada';
+                                return (
+                                <tr key={venta.id} style={{ opacity: isCancelada ? 0.6 : 1, background: isCancelada ? 'rgba(239, 68, 68, 0.05)' : 'transparent', transition: 'all 0.3s' }}>
+                                    <td style={{fontFamily: 'monospace', color: 'var(--text-muted)', padding: '15px 25px', textDecoration: isCancelada ? 'line-through' : 'none'}}>#{venta.id.toString().padStart(5, '0')}</td>
+                                    <td style={{fontSize: '0.85rem', color: 'var(--text-main)', textDecoration: isCancelada ? 'line-through' : 'none'}}>{new Date(venta.fecha).toLocaleTimeString()}</td>
+                                    <td style={{textDecoration: isCancelada ? 'line-through' : 'none'}}><strong style={{color: 'var(--text-main)'}}>{venta.clientes?.nombre || t('publicoGeneral')}</strong></td>
+                                    <td style={{textDecoration: isCancelada ? 'line-through' : 'none'}}>
                                         <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
                                             {venta.venta_detalles?.map((d, i) => (
                                                 <span key={i} style={{fontSize: '0.85rem', color: 'var(--text-main)'}}><span style={{color:'var(--accent)', fontWeight:'bold'}}>{d.cantidad}x</span> {d.productos?.nombre}</span>
                                             ))}
                                         </div>
                                     </td>
-                                    {/* 🚀 NUEVA COLUMNA DE NOTAS EN EL HISTORIAL */}
-                                    <td style={{color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}} title={venta.notas}>
+                                    <td style={{color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isCancelada ? 'line-through' : 'none'}} title={venta.notas}>
                                         {venta.notas ? <><i className="fa-solid fa-comment-dots" style={{color: 'var(--accent)'}}></i> {venta.notas}</> : '--'}
                                     </td>
-                                    <td><span style={{fontSize: '0.75rem', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 12px', borderRadius: '6px', fontWeight: 'bold'}}>{venta.metodo_pago.toUpperCase()}</span></td>
-                                    <td style={{color: 'var(--text-muted)', fontSize: '0.9rem'}}>{venta.vendedor_nombre || 'N/A'}</td>
-                                    <td style={{color: 'var(--success)', fontWeight: 'bold', textAlign: 'right', fontSize: '1.1rem', paddingRight: '25px'}}>${parseFloat(venta.total).toFixed(2)}</td>
+                                    <td style={{textDecoration: isCancelada ? 'line-through' : 'none'}}><span style={{fontSize: '0.75rem', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 12px', borderRadius: '6px', fontWeight: 'bold'}}>{venta.metodo_pago.toUpperCase()}</span></td>
+                                    <td style={{color: isCancelada ? 'var(--text-muted)' : 'var(--success)', fontWeight: 'bold', textAlign: 'right', fontSize: '1.1rem', textDecoration: isCancelada ? 'line-through' : 'none'}}>${parseFloat(venta.total).toFixed(2)}</td>
+                                    <td style={{textAlign: 'center', paddingRight: '25px'}}>
+                                        {isCancelada ? (
+                                            <span style={{background: 'var(--primary-red)', color: 'white', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold'}}><i className="fa-solid fa-ban"></i> {t('cancelada') || 'Cancelada'}</span>
+                                        ) : (
+                                            <button onClick={() => cancelarVenta(venta)} className="btn-action" style={{color: 'var(--primary-red)', border: '1px solid rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.05)', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s'}} title={t('cancelarVenta') || 'Cancelar Venta'}>
+                                                <i className="fa-solid fa-xmark"></i>
+                                            </button>
+                                        )}
+                                    </td>
                                 </tr>
-                            ))}
+                            )})}
                             {historialHoy.length === 0 && <tr><td colSpan="8" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-receipt fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos') || 'No se han registrado ventas hoy.'}</td></tr>}
                         </tbody>
                     </table>
                 </div>
             </div>
-
-            {/* 🚀 MODALES CON EFECTO BLUR (PREMIUM) */}
 
             {/* MODAL DE CONFIRMACIÓN DE VENTA Y DOCTOR */}
             {showConfirmModal && (
@@ -600,32 +680,54 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* MODAL: BUSCADOR DE PACIENTES */}
+            {/* 🚀 MODAL: BUSCADOR DE PACIENTES CON BOTÓN PARA VER LEGACY */}
             {showClientSearchModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '16px', width: '550px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left', display: 'flex', flexDirection: 'column', maxHeight: '80vh'}}>
+                        
                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
                             <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-users" style={{color: 'var(--accent)', marginRight: '10px'}}></i> Buscar Paciente</h3>
-                            <button onClick={() => { setShowClientSearchModal(false); scannerInputRef.current?.focus(); }} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
+                            <button onClick={() => { setShowClientSearchModal(false); scannerInputRef.current?.focus(); setShowLegacyClients(false); }} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
                         </div>
                         
-                        <div style={{position: 'relative', marginBottom: '15px'}}>
-                            <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '16px', top: '16px', color: 'var(--text-muted)'}}></i>
-                            <input type="text" autoFocus placeholder="Buscar por nombre, CURP o teléfono..." value={clientSearchTerm} onChange={(e) => setClientSearchTerm(e.target.value)} style={{width: '100%', padding: '14px 14px 14px 45px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} />
+                        {/* INPUT DE BÚSQUEDA Y BOTÓN LEGACY */}
+                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
+                            <div style={{position: 'relative', flex: 1}}>
+                                <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '16px', top: '16px', color: 'var(--text-muted)'}}></i>
+                                <input type="text" autoFocus placeholder="Buscar por nombre, expediente o teléfono..." value={clientSearchTerm} onChange={(e) => setClientSearchTerm(e.target.value)} style={{width: '100%', padding: '14px 14px 14px 45px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} />
+                            </div>
+                            <button 
+                                onClick={() => setShowLegacyClients(!showLegacyClients)}
+                                style={{marginLeft: '10px', padding: '12px', background: showLegacyClients ? 'rgba(2, 136, 209, 0.1)' : 'var(--bg-main)', color: showLegacyClients ? '#0288d1' : 'var(--text-muted)', border: `1px solid ${showLegacyClients ? '#0288d1' : 'var(--border-color)'}`, borderRadius: '10px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.3s', display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0}}
+                                title="Mostrar/Ocultar pacientes con expediente LEGACY"
+                            >
+                                <i className={`fa-solid ${showLegacyClients ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                                {showLegacyClients ? (t('ocultarLegacy') || 'Ocultar Legacy') : (t('verLegacy') || 'Ver Legacy')}
+                            </button>
                         </div>
 
                         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '5px' }}>
                             {t('publicoGeneral').toLowerCase().includes(clientSearchTerm.toLowerCase()) && (
-                                <div onClick={() => { setSelectedClient('general'); setShowClientSearchModal(false); scannerInputRef.current?.focus(); }} style={{ padding: '15px', borderRadius: '10px', cursor: 'pointer', color: 'var(--accent)', fontWeight: 'bold', background: 'rgba(2, 132, 199, 0.05)', border: '1px dashed var(--accent)', display: 'flex', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(2, 132, 199, 0.1)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(2, 132, 199, 0.05)'}>
+                                <div onClick={() => { setSelectedClient('general'); setShowClientSearchModal(false); scannerInputRef.current?.focus(); setShowLegacyClients(false); }} style={{ padding: '15px', borderRadius: '10px', cursor: 'pointer', color: 'var(--accent)', fontWeight: 'bold', background: 'rgba(2, 132, 199, 0.05)', border: '1px dashed var(--accent)', display: 'flex', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(2, 132, 199, 0.1)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(2, 132, 199, 0.05)'}>
                                     <i className="fa-solid fa-users" style={{marginRight: '12px', fontSize: '1.2rem'}}></i> {t('publicoGeneral')}
                                 </div>
                             )}
-                            {clientesDB.filter(c => c.nombre.toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono && c.telefono.includes(clientSearchTerm)) || (c.curp && c.curp.toLowerCase().includes(clientSearchTerm.toLowerCase()))).map(cli => (
-                                <div key={cli.id} onClick={() => { setSelectedClient(cli.id); setShowClientSearchModal(false); scannerInputRef.current?.focus(); }} style={{ padding: '15px', borderRadius: '10px', cursor: 'pointer', color: 'var(--text-main)', fontSize: '1rem', transition: '0.2s', border: '1px solid var(--border-color)', background: 'var(--bg-main)' }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}>
+                            
+                            {/* 🚀 FILTRO QUIRÚRGICO: Oculta Legacy por defecto */}
+                            {clientesDB.filter(c => {
+                                const isLegacy = c.codigo_expediente && c.codigo_expediente.includes('LEGACY');
+                                if (!showLegacyClients && isLegacy) return false;
+
+                                const term = clientSearchTerm.toLowerCase();
+                                return c.nombre.toLowerCase().includes(term) || 
+                                       (c.telefono && c.telefono.includes(term)) || 
+                                       (c.codigo_expediente && c.codigo_expediente.toLowerCase().includes(term));
+                            }).map(cli => (
+                                <div key={cli.id} onClick={() => { setSelectedClient(cli.id); setShowClientSearchModal(false); scannerInputRef.current?.focus(); setShowLegacyClients(false); }} style={{ padding: '15px', borderRadius: '10px', cursor: 'pointer', color: 'var(--text-main)', fontSize: '1rem', transition: '0.2s', border: '1px solid var(--border-color)', background: 'var(--bg-main)' }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}>
                                     <strong style={{display: 'block', marginBottom: '4px'}}>{cli.nombre}</strong>
-                                    <span style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>
-                                        <i className="fa-solid fa-phone" style={{marginRight: '5px'}}></i> {cli.telefono || 'Sin teléfono'} <span style={{margin: '0 8px', opacity: 0.3}}>|</span> 
-                                        <i className="fa-solid fa-id-card" style={{marginRight: '5px'}}></i> {cli.curp || 'Sin CURP'}
+                                    <span style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px'}}>
+                                        {cli.codigo_expediente && <span style={{background: cli.codigo_expediente.includes('LEGACY') ? 'rgba(234, 88, 12, 0.1)' : 'rgba(2, 136, 209, 0.1)', color: cli.codigo_expediente.includes('LEGACY') ? '#ea580c' : '#0288d1', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold'}}><i className="fa-solid fa-folder-open"></i> {cli.codigo_expediente}</span>}
+                                        <span><i className="fa-solid fa-phone"></i> {cli.telefono || 'Sin teléfono'}</span>
                                     </span>
                                 </div>
                             ))}
@@ -634,7 +736,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* MODAL DEL CATÁLOGO DE PRODUCTOS CON STOCK INYECTADO */}
+            {/* MODAL DEL CATÁLOGO DE PRODUCTOS */}
             {showCatalogModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{width: '900px', maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', textAlign: 'left', background: 'var(--bg-panel)', padding: '0', borderRadius: '16px', border: '1px solid var(--border-color)', boxShadow: '0 10px 40px rgba(0,0,0,0.2)'}}>
@@ -691,15 +793,20 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* MODAL REGISTRO DE CLIENTE EXPRÉS */}
+            {/* MODAL REGISTRO DE CLIENTE EXPRÉS (ESTANDARIZADO) */}
             {showNewClientModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '40px', borderRadius: '16px', width: '450px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left'}}>
                         <h3 style={{marginBottom: '25px', color: 'var(--text-main)', fontSize: '1.4rem', textAlign: 'center'}}><i className="fa-solid fa-user-plus" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('registrarPaciente')}</h3>
                         
-                        <div style={{marginBottom: '20px'}}>
-                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('nombreCompleto')} *</label>
-                            <input type="text" value={newClientName} onChange={(e) => setNewClientName(e.target.value)} placeholder="Ej. Juan Pérez" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} autoFocus />
+                        <div style={{marginBottom: '15px'}}>
+                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('nombres') || 'Nombres'} *</label>
+                            <input type="text" value={newClientNombres} onChange={(e) => setNewClientNombres(e.target.value)} placeholder="Ej. JOSE ADRIAN" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} autoFocus />
+                        </div>
+
+                        <div style={{marginBottom: '15px'}}>
+                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('apellidos') || 'Apellidos'} *</label>
+                            <input type="text" value={newClientApellidos} onChange={(e) => setNewClientApellidos(e.target.value)} placeholder="Ej. ESTRADA URIBE" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} />
                         </div>
                         
                         <div style={{marginBottom: '35px'}}>
