@@ -4,6 +4,7 @@ import { createContext, useState, useContext } from 'react';
 const translations = {
     es: {
         // Generales y Sidebar
+        agenda: "Agenda",
         panelControl: "Panel de Control", puntoVenta: "Punto de Venta", inventario: "Inventario", 
         promociones: "Promociones", reportes: "Reportes", clientes: "Clientes", configuracion: "Configuración", 
         cerrarSesion: "Cerrar Sesión", enLinea: "En línea", sucursal: "Sucursal", todas: "Todas",
