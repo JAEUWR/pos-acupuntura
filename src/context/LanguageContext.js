@@ -8,6 +8,7 @@ const translations = {
         promociones: "Promociones", reportes: "Reportes", clientes: "Clientes", configuracion: "Configuración", 
         cerrarSesion: "Cerrar Sesión", enLinea: "En línea", sucursal: "Sucursal", todas: "Todas",
         // Módulo Ventas
+        resumenVenta: "Resumen de Venta", confirmarVenta: "Confirmar Venta",
         verLegacy: "Ver Legacy",
         ocultarLegacy: "Ocultar Legacy",
         nombres: "Nombres",
@@ -452,6 +453,8 @@ const translations = {
         promociones: "Promotions", reportes: "Reports", clientes: "Customers", configuracion: "Settings", 
         cerrarSesion: "Logout", enLinea: "Online", sucursal: "Branch", todas: "All",
         // Módulo Ventas
+        resumenVenta: "Sales Summary",
+        confirmarVenta: "Confirm Sale",
         verLegacy: "View Legacy",
         ocultarLegacy: "Hide Legacy",
         nombres: "Names",
@@ -934,6 +937,8 @@ const translations = {
         promociones: "促销", reportes: "报告", clientes: "客户", configuracion: "设置", 
         cerrarSesion: "登出", enLinea: "在线", sucursal: "分店", todas: "全部",
         // Módulo Ventas
+        resumenVenta: "销售摘要",
+        confirmarVenta: "确认销售",
         verLegacy: "查看旧版",
         ocultarLegacy: "隐藏旧版",
         nombres: "名字",

@@ -12,11 +12,12 @@ import { LanguageProvider, useLanguage } from '../context/LanguageContext';
 const Ventas = dynamic(() => import('../components/Ventas'), { ssr: false });
 const ConsumosMedicos = dynamic(() => import('../components/ConsumosMedicos'), { ssr: false });
 const Inventario = dynamic(() => import('../components/Inventario'), { ssr: false });
-const Finanzas = dynamic(() => import('../components/Finanzas'), { ssr: false }); // 🚀 Nuevo Módulo Unificado
+const Finanzas = dynamic(() => import('../components/Finanzas'), { ssr: false });
 const Promociones = dynamic(() => import('../components/Promociones'), { ssr: false });
 const Clientes = dynamic(() => import('../components/Clientes'), { ssr: false });
 const Configuracion = dynamic(() => import('../components/Configuracion'), { ssr: false });
 const EscritorioMedico = dynamic(() => import('../components/EscritorioMedico'), { ssr: false });
+const Calendar = dynamic(() => import('../components/Agenda'), { ssr: false }); // 🚀 Aquí está tu importación
 
 // COMPONENTE INTERNO DEL DASHBOARD
 function DashboardApp({ session, perfil, branch, setBranch }) {
@@ -57,7 +58,6 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
             {/* 🚀 SLIDEBAR (MENÚ LATERAL COLAPSABLE) */}
             <div className={`sidebar-premium ${isSidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
                 
-                {/* Botón Flotante para Colapsar/Expandir */}
                 <button 
                     className="toggle-sidebar-btn"
                     onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -68,7 +68,6 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
 
                 <div className="content-on-top" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                     
-                    {/* ÁREA DEL LOGO */}
                     <div className="logo-container">
                         {isDarkMode ? (
                             <div className="logo-capsule-dark">
@@ -87,7 +86,6 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                         <button onClick={() => setActiveView('ventas')} className={`nav-btn ${activeView === 'ventas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('puntoVenta') || 'Punto de Venta') : ''}>
                             <i className="fa-solid fa-cash-register"></i> <span className="nav-label">{t('puntoVenta') || 'Punto de Venta'}</span>
                         </button>
-                        {/* 🚀 NUEVA PESTAÑA: FINANZAS Y MOVIMIENTOS */}
                         <button onClick={() => setActiveView('finanzas')} className={`nav-btn ${activeView === 'finanzas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('movimientosFinanzas') || 'Movimientos y Finanzas') : ''}>
                             <i className="fa-solid fa-chart-pie"></i> <span className="nav-label">{t('movimientosFinanzas') || 'Movimientos y Finanzas'}</span>
                         </button>
@@ -97,6 +95,12 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                         <button onClick={() => setActiveView('clientes')} className={`nav-btn ${activeView === 'clientes' ? 'active' : ''}`} title={!isSidebarOpen ? (t('clientes') || 'Recepción') : ''}>
                             <i className="fa-solid fa-users"></i> <span className="nav-label">{t('clientes') || 'Recepción'}</span>
                         </button>
+                        
+                        {/* 🚀 AQUÍ ESTÁ EL BOTÓN DE LA AGENDA QUE FALTABA */}
+                        <button onClick={() => setActiveView('calendar')} className={`nav-btn ${activeView === 'calendar' ? 'active' : ''}`} title={!isSidebarOpen ? (t('agenda') || 'Agenda') : ''}>
+                            <i className="fa-regular fa-calendar-check"></i> <span className="nav-label">{t('agenda') || 'Agenda Clínica'}</span>
+                        </button>
+
                         <button onClick={() => setActiveView('escritorioMedico')} className={`nav-btn ${activeView === 'escritorioMedico' ? 'active' : ''}`} title={!isSidebarOpen ? (t('escritorioMedico') || 'Escritorio Médico') : ''}>
                             <i className="fa-solid fa-user-doctor"></i> <span className="nav-label">{t('escritorioMedico') || 'Escritorio Médico'}</span>
                         </button>
@@ -122,14 +126,12 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
             {/* ÁREA PRINCIPAL DERECHA */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', zIndex: 1 }}>
                 
-                {/* 🚀 TOPBAR ELEGANTE */}
                 <div style={{ 
                     padding: '15px 30px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
                     background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-color)', 
                     borderTop: '3px solid var(--primary-red)', boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)', zIndex: 5 
                 }}>
                     
-                    {/* SUCURSAL SELECTOR */}
                     <div className="content-on-top" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                         <div style={{ position: 'relative' }}>
                             <div 
@@ -209,8 +211,11 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                 {/* CONTENEDOR DE LAS VISTAS */}
                 <div className="content-on-top" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
                     {activeView === 'ventas' && <Ventas branch={branch} perfilActual={perfil} />}
-                    {/* 🚀 EL NUEVO MÓDULO UNIFICADO SE RENDERIZA AQUÍ */}
                     {activeView === 'finanzas' && <Finanzas branch={branch} perfilActual={perfil} />}
+                    
+                    {/* 🚀 AQUÍ ESTÁ TU RENDERIZADO */}
+                    {activeView === 'calendar' && <Calendar branch={branch} perfilActual={perfil} />}
+                    
                     {activeView === 'doctores' && <ConsumosMedicos branch={branch} />}
                     {activeView === 'inventario' && <Inventario branch={branch} />}
                     {activeView === 'promociones' && <Promociones />}
@@ -304,7 +309,6 @@ export default function Home() {
         setLoadingAuth(false);
     };
 
-    // 🚀 AL NO RENDERIZAR EN SERVIDOR, ANULAMOS EL ERROR DE LA EXTENSIÓN
     if (!isMounted) return null; 
 
     if (loadingAuth) {

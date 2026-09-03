@@ -26,6 +26,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const [selectedDoctor, setSelectedDoctor] = useState('');
 
     const [historialHoy, setHistorialHoy] = useState([]);
+    // 🚀 NUEVO ESTADO PARA EL MODAL DEL HISTORIAL
+    const [showHistorialModal, setShowHistorialModal] = useState(false);
+    
     const scannerInputRef = useRef(null);
 
     const [showCatalogModal, setShowCatalogModal] = useState(false);
@@ -39,11 +42,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const [showClientSearchModal, setShowClientSearchModal] = useState(false);
     const [clientSearchTerm, setClientSearchTerm] = useState('');
     
-    // 🚀 NUEVO ESTADO PARA OCULTAR/MOSTRAR PACIENTES ANTIGUOS
     const [showLegacyClients, setShowLegacyClients] = useState(false);
 
     const branchIdMap = { napoles: 1, obrera: 2, pedregal: 3 };
-    const sucursalId = branchIdMap[branch] || 1;
+    const sucursalId = branchIdMap[(branch || '').toLowerCase()] || 1;
+
+    const formatUpperCase = (str) => {
+        if (!str) return '';
+        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+    };
 
     const fetchDatos = async () => {
         const { data: prods } = await supabase.from('productos')
@@ -75,7 +82,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
     const fetchHistorialHoy = async () => {
         const hoy = new Date().toISOString().split('T')[0];
-        const { data } = await supabase.from('ventas').select(`id, fecha, total, metodo_pago, vendedor_nombre, notas, estatus, clientes ( nombre ), venta_detalles ( cantidad, productos ( nombre ) )`).eq('sucursal_id', sucursalId).gte('fecha', `${hoy}T00:00:00`).order('fecha', { ascending: false });
+        const { data } = await supabase.from('ventas').select(`id, fecha, total, metodo_pago, vendedor_nombre, notas, estatus, clientes ( nombre ), venta_detalles ( cantidad, producto_id, productos ( nombre, tipo ) )`).eq('sucursal_id', sucursalId).gte('fecha', `${hoy}T00:00:00`).order('fecha', { ascending: false });
         if (data) setHistorialHoy(data);
     };
 
@@ -85,15 +92,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         scannerInputRef.current?.focus();
     }, [branch]);
 
-    const modalsState = useRef({ cat: false, cli: false, drop: false, conf: false });
-    useEffect(() => { modalsState.current = { cat: showCatalogModal, cli: showNewClientModal, drop: showClientSearchModal, conf: showConfirmModal }; }, [showCatalogModal, showNewClientModal, showClientSearchModal, showConfirmModal]);
+    const modalsState = useRef({ cat: false, cli: false, drop: false, conf: false, hist: false });
+    useEffect(() => { modalsState.current = { cat: showCatalogModal, cli: showNewClientModal, drop: showClientSearchModal, conf: showConfirmModal, hist: showHistorialModal }; }, [showCatalogModal, showNewClientModal, showClientSearchModal, showConfirmModal, showHistorialModal]);
 
     useEffect(() => {
         const handleGlobalKeyDown = (e) => {
             const activeElement = document.activeElement;
             const isInputFocused = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.tagName === 'SELECT');
             const mods = modalsState.current;
-            if (!isInputFocused && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !mods.cat && !mods.cli && !mods.drop && !mods.conf) {
+            if (!isInputFocused && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !mods.cat && !mods.cli && !mods.drop && !mods.conf && !mods.hist) {
                 scannerInputRef.current?.focus();
             }
         };
@@ -130,10 +137,8 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const guardarClienteExpres = async () => {
         if (!newClientNombres || !newClientApellidos) return alert(t('camposObligatorios') || 'Faltan campos obligatorios (Nombres y Apellidos).');
         
-        const normalizeStr = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
-        
-        const nombresNorm = normalizeStr(newClientNombres);
-        const apellidosNorm = normalizeStr(newClientApellidos);
+        const nombresNorm = newClientNombres.trim();
+        const apellidosNorm = newClientApellidos.trim();
         const fullName = `${nombresNorm} ${apellidosNorm}`;
 
         const { data: dupes } = await supabase.from('clientes')
@@ -157,7 +162,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
         const newId = data[0].id;
         const yearMonth = new Date().getFullYear().toString().slice(-2) + (new Date().getMonth() + 1).toString().padStart(2, '0');
-        const branchLetter = branch.charAt(0).toUpperCase();
+        const branchLetter = (branch || 'Napoles').charAt(0).toUpperCase();
         const expCode = `HK-${branchLetter}-${yearMonth}-${newId.toString().padStart(4, '0')}`;
         
         await supabase.from('clientes').update({ codigo_expediente: expCode }).eq('id', newId);
@@ -181,16 +186,31 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         }
     };
 
+    // 🚀 LÓGICA DE CANCELACIÓN CON DEVOLUCIÓN DE INVENTARIO
     const cancelarVenta = async (venta) => {
-        if (!window.confirm(t('confirmarCancelacion') || `¿Estás seguro de cancelar el folio #${venta.id}?\n\nEsta acción anulará la venta en los reportes financieros y ajustará la caja automáticamente si se pagó en efectivo.`)) return;
+        if (!window.confirm(t('confirmarCancelacion') || `¿Estás seguro de cancelar el folio #${venta.id}?\n\nEsta acción:\n1. Anulará la venta en los reportes financieros.\n2. Devolverá los productos físicos al inventario.\n3. Retirará el efectivo cobrado de la caja física.`)) return;
 
+        // 1. Cambiamos el estatus a cancelada
         const { error } = await supabase.from('ventas').update({ estatus: 'cancelada' }).eq('id', venta.id);
-        
         if (error) {
             alert('Error al cancelar la venta: ' + error.message);
             return;
         }
 
+        // 2. 🚀 Devolver productos al inventario
+        // Solo devolvemos si no son consultas o servicios infinitos
+        for (const detalle of venta.venta_detalles) {
+            if (detalle.productos?.tipo !== 'servicio' && detalle.productos?.tipo !== 'consulta') {
+                // Obtenemos el stock actual de ese producto en esta sucursal
+                const { data: invData } = await supabase.from('inventario').select('stock').eq('producto_id', detalle.producto_id).eq('sucursal_id', sucursalId).single();
+                if (invData) {
+                    const nuevoStock = invData.stock + detalle.cantidad; // Devolvemos la cantidad vendida
+                    await supabase.from('inventario').update({ stock: nuevoStock }).eq('producto_id', detalle.producto_id).eq('sucursal_id', sucursalId);
+                }
+            }
+        }
+
+        // 3. Ajuste de Caja Fuerte (Si hubo efectivo involucrado, lo retiramos con nombre explícito)
         let montoEfectivo = 0;
         const pagoLower = venta.metodo_pago.toLowerCase();
         
@@ -206,11 +226,14 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 p_sucursal_id: sucursalId,
                 p_tipo: 'retiro_manual',
                 p_monto: -Math.abs(montoEfectivo), 
-                p_motivo: `Ajuste por Cancelación de Folio #${venta.id}`
+                p_motivo: `Salida por Cancelación/Devolución de Venta Folio #${venta.id}`
             });
         }
 
-        alert(t('ventaCanceladaExito') || 'Venta cancelada exitosamente.');
+        alert(t('ventaCanceladaExito') || 'Venta cancelada exitosamente y productos devueltos al inventario.');
+        
+        // Refrescamos inventario visual y el historial
+        fetchDatos();
         fetchHistorialHoy(); 
     };
 
@@ -342,6 +365,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             
             setCart([]); setSelectedClient(''); setMontoRecibido(''); setFolioTransferencia(''); setMontosMixtos({efectivo:'', tarjeta:'', transferencia:''});
             setSaleNotes(''); setSelectedDoctor(''); setShowConfirmModal(false);
+            
+            // Refresca catálogo para actualizar inventario y el historial
+            fetchDatos();
             fetchHistorialHoy();
         }
     };
@@ -350,10 +376,10 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const productosAnclados = productosDB.filter(p => p.acceso_rapido);
 
     return (
-        <div className="view-section active" style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingRight: '5px' }}>
+        <div className="view-section active" style={{ display: 'flex', flexDirection: 'column', overflowY: 'hidden', paddingRight: '5px' }}>
             
-            {/* ÁREA PRINCIPAL POS */}
-            <div style={{ display: 'flex', gap: '25px', height: '64vh', minHeight: '560px', flex: '0 0 auto' }}>
+            {/* 🚀 ÁREA PRINCIPAL POS (AHORA OCUPA TODO EL ALTO) */}
+            <div style={{ display: 'flex', gap: '25px', height: '100%', flex: '1 1 auto' }}>
                 
                 {/* PANEL IZQUIERDO (CARRITO) */}
                 <div className="panel" style={{ flex: 1.6, display: 'flex', flexDirection: 'column', padding: '25px', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
@@ -419,7 +445,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                     </div>
                 </div>
                 
-                {/* PANEL DERECHO */}
+                {/* PANEL DERECHO (CLIENTE Y PAGOS) */}
                 <div className="panel" style={{ flex: 1.1, display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
                     
                     <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -538,7 +564,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         </div>
                     </div>
 
-                    {/* TOTALES Y BOTÓN DE COBRO */}
+                    {/* TOTALES, BOTÓN DE COBRO Y 🚀 NUEVO BOTÓN HISTORIAL (FIJOS AL FONDO) */}
                     <div style={{ padding: '25px', background: 'var(--bg-panel)', borderTop: '1px solid var(--border-color)', marginTop: 'auto', flexShrink: 0, boxShadow: '0 -4px 20px rgba(0,0,0,0.05)' }}>
                         <div style={{display:'flex', justifyContent:'space-between', color:'var(--text-muted)', marginBottom:'10px', fontSize: '1rem', fontWeight: 'bold'}}><span>{t('subtotal')}</span><span>${subtotalBruto.toFixed(2)}</span></div>
                         <div style={{display:'flex', justifyContent:'space-between', color:'var(--accent)', marginBottom:'15px', fontSize: '1rem', fontWeight: 'bold'}}><span>{t('descuentos')}</span><span>-${totalDescuentos.toFixed(2)}</span></div>
@@ -548,83 +574,36 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             <span style={{fontSize: '2.8rem', color: 'var(--success)', fontWeight: '900'}}>${totalCobrar.toFixed(2)}</span>
                         </div>
                         
-                        <button onClick={openConfirmModal} className="btn-primary" 
-                            style={{
-                                width:'100%', padding:'20px', border:'none', borderRadius:'12px', 
-                                fontSize:'1.4rem', fontWeight:'900', cursor:'pointer', 
-                                boxShadow: '0 10px 25px rgba(211, 47, 47, 0.3)', transition: 'all 0.3s ease'
-                            }}>
-                            <i className="fa-solid fa-cash-register" style={{marginRight: '10px'}}></i> {t('cobrar')}
-                        </button>
+                        <div style={{display: 'flex', gap: '15px'}}>
+                            {/* 🚀 BOTÓN HISTORIAL MINIMIZADO */}
+                            <button onClick={() => setShowHistorialModal(true)} className="btn-action" style={{flex: 1, padding: '20px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.3s'}}>
+                                <i className="fa-solid fa-clock-history"></i> Historial
+                            </button>
+
+                            <button onClick={openConfirmModal} className="btn-primary" 
+                                style={{
+                                    flex: 3, padding:'20px', border:'none', borderRadius:'12px', 
+                                    fontSize:'1.4rem', fontWeight:'900', cursor:'pointer', 
+                                    boxShadow: '0 10px 25px rgba(211, 47, 47, 0.3)', transition: 'all 0.3s ease'
+                                }}>
+                                <i className="fa-solid fa-cash-register" style={{marginRight: '10px'}}></i> {t('cobrar')}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {/* TABLA HISTORIAL DEL DÍA (CON FILTRO DE ESTADO Y BOTÓN CANCELAR) */}
-            <div className="panel" style={{ flex: '0 0 auto', marginTop: '25px', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
-                <h3 style={{marginBottom: '20px', color: 'var(--text-main)', fontSize: '1.2rem'}}><i className="fa-solid fa-clock-history" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('historialDia')} - {branch.toUpperCase()}</h3>
-                <div style={{maxHeight: '350px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '12px'}}>
-                    <table className="data-table">
-                        <thead style={{position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-main)', boxShadow: '0 2px 4px rgba(0,0,0,0.05)'}}>
-                            <tr>
-                                <th style={{padding: '15px 25px'}}>{t('folio')}</th>
-                                <th>{t('hora')}</th>
-                                <th>{t('clientes')}</th>
-                                <th>{t('articulos')}</th>
-                                <th>{t('notas') || 'Notas'}</th>
-                                <th>{t('formaPago')}</th>
-                                <th style={{textAlign: 'right'}}>{t('total')}</th>
-                                <th style={{textAlign: 'center', paddingRight: '25px'}}>{t('acciones') || 'Acciones'}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {historialHoy.map(venta => {
-                                const isCancelada = venta.estatus === 'cancelada';
-                                return (
-                                <tr key={venta.id} style={{ opacity: isCancelada ? 0.6 : 1, background: isCancelada ? 'rgba(239, 68, 68, 0.05)' : 'transparent', transition: 'all 0.3s' }}>
-                                    <td style={{fontFamily: 'monospace', color: 'var(--text-muted)', padding: '15px 25px', textDecoration: isCancelada ? 'line-through' : 'none'}}>#{venta.id.toString().padStart(5, '0')}</td>
-                                    <td style={{fontSize: '0.85rem', color: 'var(--text-main)', textDecoration: isCancelada ? 'line-through' : 'none'}}>{new Date(venta.fecha).toLocaleTimeString()}</td>
-                                    <td style={{textDecoration: isCancelada ? 'line-through' : 'none'}}><strong style={{color: 'var(--text-main)'}}>{venta.clientes?.nombre || t('publicoGeneral')}</strong></td>
-                                    <td style={{textDecoration: isCancelada ? 'line-through' : 'none'}}>
-                                        <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
-                                            {venta.venta_detalles?.map((d, i) => (
-                                                <span key={i} style={{fontSize: '0.85rem', color: 'var(--text-main)'}}><span style={{color:'var(--accent)', fontWeight:'bold'}}>{d.cantidad}x</span> {d.productos?.nombre}</span>
-                                            ))}
-                                        </div>
-                                    </td>
-                                    <td style={{color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isCancelada ? 'line-through' : 'none'}} title={venta.notas}>
-                                        {venta.notas ? <><i className="fa-solid fa-comment-dots" style={{color: 'var(--accent)'}}></i> {venta.notas}</> : '--'}
-                                    </td>
-                                    <td style={{textDecoration: isCancelada ? 'line-through' : 'none'}}><span style={{fontSize: '0.75rem', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 12px', borderRadius: '6px', fontWeight: 'bold'}}>{venta.metodo_pago.toUpperCase()}</span></td>
-                                    <td style={{color: isCancelada ? 'var(--text-muted)' : 'var(--success)', fontWeight: 'bold', textAlign: 'right', fontSize: '1.1rem', textDecoration: isCancelada ? 'line-through' : 'none'}}>${parseFloat(venta.total).toFixed(2)}</td>
-                                    <td style={{textAlign: 'center', paddingRight: '25px'}}>
-                                        {isCancelada ? (
-                                            <span style={{background: 'var(--primary-red)', color: 'white', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold'}}><i className="fa-solid fa-ban"></i> {t('cancelada') || 'Cancelada'}</span>
-                                        ) : (
-                                            <button onClick={() => cancelarVenta(venta)} className="btn-action" style={{color: 'var(--primary-red)', border: '1px solid rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.05)', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s'}} title={t('cancelarVenta') || 'Cancelar Venta'}>
-                                                <i className="fa-solid fa-xmark"></i>
-                                            </button>
-                                        )}
-                                    </td>
-                                </tr>
-                            )})}
-                            {historialHoy.length === 0 && <tr><td colSpan="8" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-receipt fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos') || 'No se han registrado ventas hoy.'}</td></tr>}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {/* MODAL DE CONFIRMACIÓN DE VENTA Y DOCTOR */}
+            {/* 🚀 MODAL DE CONFIRMACIÓN DE VENTA Y DOCTOR (TARJETONES GIGANTES) */}
             {showConfirmModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
-                    <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '500px', border: '1px solid var(--border-color)', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden'}}>
+                    <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '550px', border: '1px solid var(--border-color)', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden'}}>
                         
                         <div style={{background: 'var(--bg-main)', padding: '25px 30px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                             <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '900'}}><i className="fa-solid fa-file-invoice-dollar" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('resumenVenta') || 'Resumen de la Venta'}</h3>
                             <button onClick={() => setShowConfirmModal(false)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
                         </div>
                         
-                        <div style={{padding: '30px', maxHeight: '60vh', overflowY: 'auto'}}>
+                        <div style={{padding: '30px', maxHeight: '65vh', overflowY: 'auto'}}>
                             
                             <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '15px', color: 'var(--text-main)'}}>
                                 <span style={{fontWeight: 'bold', textTransform: 'uppercase', fontSize: '0.85rem', color: 'var(--text-muted)'}}>Paciente:</span>
@@ -645,21 +624,35 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                 </div>
                             </div>
 
-                            {/* ASIGNACIÓN DE DOCTOR OBLIGATORIA */}
+                            {/* 🚀 ASIGNACIÓN DE DOCTOR (TARJETONES GIGANTES) */}
                             {hasConsulta && (
-                                <div style={{background: 'rgba(2, 136, 209, 0.05)', border: '1px solid #0288d1', padding: '20px', borderRadius: '12px', marginBottom: '20px'}}>
-                                    <label style={{display: 'block', color: '#0288d1', fontWeight: 'bold', fontSize: '0.95rem', marginBottom: '10px'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> {t('doctorAsignado') || 'Doctor Asignado'} *</label>
-                                    <p style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px'}}>Esta venta incluye una consulta. Selecciona al doctor correspondiente.</p>
-                                    <select 
-                                        value={selectedDoctor} 
-                                        onChange={(e) => setSelectedDoctor(e.target.value)} 
-                                        style={{width: '100%', padding: '14px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid #0288d1', borderRadius: '8px', fontSize: '1rem', outline: 'none', fontWeight: 'bold'}}
-                                    >
-                                        <option value="">{t('seleccionaDoctor') || '-- Selecciona un Doctor --'}</option>
-                                        {doctoresDB.map(doc => (
-                                            <option key={doc.id} value={doc.id}>{doc.nombre} ({doc.especialidad})</option>
-                                        ))}
-                                    </select>
+                                <div style={{background: 'rgba(2, 136, 209, 0.05)', border: '1px solid rgba(2, 136, 209, 0.3)', padding: '20px', borderRadius: '12px', marginBottom: '20px'}}>
+                                    <label style={{display: 'block', color: '#0288d1', fontWeight: '900', fontSize: '1.1rem', marginBottom: '10px'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> ¿Qué Médico atendió la consulta? *</label>
+                                    <p style={{fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '15px'}}>Selecciona al doctor para asignar el pago correctamente.</p>
+                                    
+                                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px'}}>
+                                        {doctoresDB.map(doc => {
+                                            const isSelected = selectedDoctor == doc.id;
+                                            return (
+                                                <div 
+                                                    key={doc.id} 
+                                                    onClick={() => setSelectedDoctor(doc.id)}
+                                                    style={{
+                                                        background: isSelected ? '#0288d1' : 'var(--bg-panel)',
+                                                        color: isSelected ? 'white' : 'var(--text-main)',
+                                                        border: `2px solid ${isSelected ? '#0288d1' : 'var(--border-color)'}`,
+                                                        borderRadius: '12px', padding: '15px', textAlign: 'center', cursor: 'pointer',
+                                                        boxShadow: isSelected ? '0 4px 15px rgba(2, 136, 209, 0.4)' : 'none',
+                                                        transition: 'all 0.2s ease', transform: isSelected ? 'scale(1.02)' : 'scale(1)'
+                                                    }}
+                                                >
+                                                    <i className="fa-solid fa-user-doctor fa-2x" style={{marginBottom: '10px', opacity: isSelected ? 1 : 0.5}}></i>
+                                                    <strong style={{display: 'block', fontSize: '1.1rem'}}>{doc.nombre}</strong>
+                                                    <span style={{fontSize: '0.75rem', opacity: 0.8}}>{doc.especialidad}</span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
                                 </div>
                             )}
 
@@ -680,7 +673,70 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* 🚀 MODAL: BUSCADOR DE PACIENTES CON BOTÓN PARA VER LEGACY */}
+            {/* 🚀 MODAL: HISTORIAL DEL DÍA FLOTANTE */}
+            {showHistorialModal && (
+                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
+                    <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '1000px', maxWidth: '95vw', border: '1px solid var(--border-color)', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '85vh'}}>
+                        
+                        <div style={{background: 'var(--bg-main)', padding: '25px 30px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                            <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-clock-history" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('historialDia')} - {branch.toUpperCase()}</h3>
+                            <button onClick={() => setShowHistorialModal(false)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
+                        </div>
+
+                        <div style={{overflowY: 'auto', flex: 1, padding: '20px'}}>
+                            <table className="data-table" style={{border: '1px solid var(--border-color)', borderRadius: '12px'}}>
+                                <thead style={{position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-main)', boxShadow: '0 2px 4px rgba(0,0,0,0.05)'}}>
+                                    <tr>
+                                        <th style={{padding: '15px 25px'}}>{t('folio')}</th>
+                                        <th>{t('hora')}</th>
+                                        <th>{t('clientes')}</th>
+                                        <th>{t('articulos')}</th>
+                                        <th>{t('notas') || 'Notas'}</th>
+                                        <th>{t('formaPago')}</th>
+                                        <th style={{textAlign: 'right'}}>{t('total')}</th>
+                                        <th style={{textAlign: 'center', paddingRight: '25px'}}>{t('acciones') || 'Acciones'}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {historialHoy.map(venta => {
+                                        const isCancelada = venta.estatus === 'cancelada';
+                                        return (
+                                        <tr key={venta.id} style={{ opacity: isCancelada ? 0.6 : 1, background: isCancelada ? 'rgba(239, 68, 68, 0.05)' : 'transparent', transition: 'all 0.3s' }}>
+                                            <td style={{fontFamily: 'monospace', color: 'var(--text-muted)', padding: '15px 25px', textDecoration: isCancelada ? 'line-through' : 'none'}}>#{venta.id.toString().padStart(5, '0')}</td>
+                                            <td style={{fontSize: '0.85rem', color: 'var(--text-main)', textDecoration: isCancelada ? 'line-through' : 'none'}}>{new Date(venta.fecha).toLocaleTimeString()}</td>
+                                            <td style={{textDecoration: isCancelada ? 'line-through' : 'none'}}><strong style={{color: 'var(--text-main)'}}>{venta.clientes?.nombre || t('publicoGeneral')}</strong></td>
+                                            <td style={{textDecoration: isCancelada ? 'line-through' : 'none'}}>
+                                                <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                                                    {venta.venta_detalles?.map((d, i) => (
+                                                        <span key={i} style={{fontSize: '0.85rem', color: 'var(--text-main)'}}><span style={{color:'var(--accent)', fontWeight:'bold'}}>{d.cantidad}x</span> {d.productos?.nombre}</span>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            <td style={{color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isCancelada ? 'line-through' : 'none'}} title={venta.notas}>
+                                                {venta.notas ? <><i className="fa-solid fa-comment-dots" style={{color: 'var(--accent)'}}></i> {venta.notas}</> : '--'}
+                                            </td>
+                                            <td style={{textDecoration: isCancelada ? 'line-through' : 'none'}}><span style={{fontSize: '0.75rem', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '5px 12px', borderRadius: '6px', fontWeight: 'bold'}}>{venta.metodo_pago.toUpperCase()}</span></td>
+                                            <td style={{color: isCancelada ? 'var(--text-muted)' : 'var(--success)', fontWeight: 'bold', textAlign: 'right', fontSize: '1.1rem', textDecoration: isCancelada ? 'line-through' : 'none'}}>${parseFloat(venta.total).toFixed(2)}</td>
+                                            <td style={{textAlign: 'center', paddingRight: '25px'}}>
+                                                {isCancelada ? (
+                                                    <span style={{background: 'var(--primary-red)', color: 'white', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold'}}><i className="fa-solid fa-ban"></i> {t('cancelada') || 'Cancelada'}</span>
+                                                ) : (
+                                                    <button onClick={() => cancelarVenta(venta)} className="btn-action" style={{color: 'var(--primary-red)', border: '1px solid rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.05)', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s'}} title={t('cancelarVenta') || 'Cancelar Venta'}>
+                                                        <i className="fa-solid fa-xmark"></i>
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    )})}
+                                    {historialHoy.length === 0 && <tr><td colSpan="8" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-receipt fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos') || 'No se han registrado ventas hoy.'}</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL: BUSCADOR DE PACIENTES CON BOTÓN PARA VER LEGACY */}
             {showClientSearchModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '16px', width: '550px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left', display: 'flex', flexDirection: 'column', maxHeight: '80vh'}}>
@@ -690,7 +746,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             <button onClick={() => { setShowClientSearchModal(false); scannerInputRef.current?.focus(); setShowLegacyClients(false); }} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
                         </div>
                         
-                        {/* INPUT DE BÚSQUEDA Y BOTÓN LEGACY */}
                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
                             <div style={{position: 'relative', flex: 1}}>
                                 <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '16px', top: '16px', color: 'var(--text-muted)'}}></i>
@@ -713,7 +768,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                 </div>
                             )}
                             
-                            {/* 🚀 FILTRO QUIRÚRGICO: Oculta Legacy por defecto */}
                             {clientesDB.filter(c => {
                                 const isLegacy = c.codigo_expediente && c.codigo_expediente.includes('LEGACY');
                                 if (!showLegacyClients && isLegacy) return false;
@@ -793,7 +847,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* MODAL REGISTRO DE CLIENTE EXPRÉS (ESTANDARIZADO) */}
+            {/* MODAL REGISTRO DE CLIENTE EXPRÉS */}
             {showNewClientModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '40px', borderRadius: '16px', width: '450px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left'}}>
@@ -801,12 +855,12 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         
                         <div style={{marginBottom: '15px'}}>
                             <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('nombres') || 'Nombres'} *</label>
-                            <input type="text" value={newClientNombres} onChange={(e) => setNewClientNombres(e.target.value)} placeholder="Ej. JOSE ADRIAN" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} autoFocus />
+                            <input type="text" value={newClientNombres} onChange={(e) => setNewClientNombres(formatUpperCase(e.target.value))} placeholder="Ej. JOSE ADRIAN" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} autoFocus />
                         </div>
 
                         <div style={{marginBottom: '15px'}}>
                             <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('apellidos') || 'Apellidos'} *</label>
-                            <input type="text" value={newClientApellidos} onChange={(e) => setNewClientApellidos(e.target.value)} placeholder="Ej. ESTRADA URIBE" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} />
+                            <input type="text" value={newClientApellidos} onChange={(e) => setNewClientApellidos(formatUpperCase(e.target.value))} placeholder="Ej. ESTRADA URIBE" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} />
                         </div>
                         
                         <div style={{marginBottom: '35px'}}>

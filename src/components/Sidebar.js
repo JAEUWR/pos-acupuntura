@@ -53,47 +53,62 @@ export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
             </div>
 
             <nav style={{ display: 'flex', flexDirection: 'column', flex: 1, overflowY: 'auto', paddingRight: '5px' }}>
+                
                 {hasAccess('ventas') && (
                     <button style={getBtnStyle('ventas')} onClick={() => setActiveView('ventas')}>
                         <i className="fa-solid fa-cash-register" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('puntoVenta')}
                     </button>
                 )}
-                {/* 🚀 NUEVA PESTAÑA UNIFICADA */}
+                
                 {hasAccess('finanzas') && (
                     <button style={getBtnStyle('finanzas')} onClick={() => setActiveView('finanzas')}>
                         <i className="fa-solid fa-chart-pie" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('movimientosFinanzas') || 'Movimientos y Finanzas'}
                     </button>
                 )}
+                
+                {/* 🚀 EL BOTÓN DE AGENDA YA TIENE SU PROPIO ÍCONO Y TEXTO */}
+                {hasAccess('calendar') && (
+                    <button style={getBtnStyle('calendar')} onClick={() => setActiveView('calendar')}>
+                        <i className="fa-regular fa-calendar-check" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('agendaClinica') || 'Agenda Clínica'}
+                    </button>
+                )}
+
                 {hasAccess('doctores') && (
                     <button style={getBtnStyle('doctores')} onClick={() => setActiveView('doctores')}>
                         <i className="fa-solid fa-briefcase-medical" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('insumosMedicos')}
                     </button>
                 )}
-                {hasAccess('inventario') && (
-                    <button style={getBtnStyle('inventario')} onClick={() => setActiveView('inventario')}>
-                        <i className="fa-solid fa-boxes-stacked" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('inventario')}
-                    </button>
-                )}
-                {hasAccess('promociones') && (
-                    <button style={getBtnStyle('promociones')} onClick={() => setActiveView('promociones')}>
-                        <i className="fa-solid fa-tags" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('promociones')}
-                    </button>
-                )}
+                
                 {hasAccess('clientes') && (
                     <button style={getBtnStyle('clientes')} onClick={() => setActiveView('clientes')}>
                         <i className="fa-solid fa-users" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('clientes')}
                     </button>
                 )}
+                
                 {hasAccess('escritorioMedico') && (
                     <button style={getBtnStyle('escritorioMedico')} onClick={() => setActiveView('escritorioMedico')}>
                         <i className="fa-solid fa-user-doctor" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('escritorioMedico')}
                     </button>
                 )}
+                
+                {hasAccess('inventario') && (
+                    <button style={getBtnStyle('inventario')} onClick={() => setActiveView('inventario')}>
+                        <i className="fa-solid fa-boxes-stacked" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('inventario')}
+                    </button>
+                )}
+                
+                {hasAccess('promociones') && (
+                    <button style={getBtnStyle('promociones')} onClick={() => setActiveView('promociones')}>
+                        <i className="fa-solid fa-tags" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('promociones')}
+                    </button>
+                )}
+                
                 {hasAccess('configuracion') && (
                     <button style={getBtnStyle('configuracion')} onClick={() => setActiveView('configuracion')}>
                         <i className="fa-solid fa-gear" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('configuracion')}
                     </button>
                 )}
+
             </nav>
 
             <button 
