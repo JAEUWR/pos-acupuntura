@@ -39,7 +39,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     const [historialCaja, setHistorialCaja] = useState([]);
     const [historialGlobal, setHistorialGlobal] = useState([]);
 
-    // 🚀 ESTADOS CAJA FUERTE (BÓVEDA)
+    // ESTADOS CAJA FUERTE (BÓVEDA)
     const [saldoBoveda, setSaldoBoveda] = useState(0);
     const [historialBoveda, setHistorialBoveda] = useState([]);
     const [showRetiroBovedaModal, setShowRetiroBovedaModal] = useState(false);
@@ -54,7 +54,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     const [montoCaja, setMontoCaja] = useState('');
     const [motivoCaja, setMotivoCaja] = useState('');
     
-    // 🚀 MODAL INTERACTIVO DE CORTE DE CAJA
+    // MODAL INTERACTIVO DE CORTE DE CAJA
     const [showCorteModal, setShowCorteModal] = useState(false);
     const [montoParaBoveda, setMontoParaBoveda] = useState('');
 
@@ -106,7 +106,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         let queryGlobal = supabase.from('movimientos_caja').select('*').eq('sucursal_id', sucursalId).order('fecha', { ascending: false }).limit(800);
         let queryDocs = supabase.from('doctores').select('id, nombre').eq('activo', true);
 
-        // 🚀 FETCH BÓVEDA (Con Try-Catch por si aún no han ejecutado el SQL)
         let queryBoveda = supabase.from('movimientos_boveda').select('*').gte('fecha', start).lte('fecha', end).order('fecha', { ascending: false });
         if (viewMode === 'sucursal') queryBoveda = queryBoveda.eq('sucursal_id', sucursalId);
 
@@ -160,7 +159,11 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         mixtosConsultas.tarjeta += valoresMixtos.tarjeta;
                         mixtosConsultas.transferencia += valoresMixtos.transferencia;
 
-                        if (esConsultaOficial || nombreLower.includes('consulta')) numVisitasReales += cant;
+                        // 🚀 FIX: Filtro estricto para evitar inflar visitas con "Complementarios"
+                        const esComplemento = nombreLower.includes('complementario') || nombreLower.includes('escaner');
+                        if ((esConsultaOficial || nombreLower.includes('consulta')) && !esComplemento) {
+                            numVisitasReales += cant;
+                        }
                     } else {
                         arrProductos.push({ folio: v.id, fecha: parseDBDate(v.fecha).toLocaleString(), sucursal: sucursalNombre, cliente: clienteNombre, articulo: nombreArticulo, cantidad: cant, precio: precio, importe: importeDetalle, metodo_pago: pago, esMixto, valoresMixtos });
                     }
@@ -268,7 +271,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         else { setShowCajaModal(false); setMontoCaja(''); setMotivoCaja(''); fetchFinanzas(); }
     };
 
-    // 🚀 NUEVA LÓGICA DE CORTE: TRANSFERENCIA A BÓVEDA
     const confirmarCorteYTransferencia = async () => {
         if (saldoCaja <= 0) {
             alert(t('alertaCajaCero') || 'La caja está en cero. No hay efectivo que cortar.');
@@ -299,7 +301,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 motivo: `Transferencia desde Corte de Caja (${new Date().toLocaleDateString()})`
             });
 
-            // Actualizamos el saldo de la bóveda
             const nuevoSaldoBoveda = saldoBoveda + montoTransferencia;
             await supabase.from('boveda_estado').update({ saldo: nuevoSaldoBoveda, ultima_actualizacion: new Date().toISOString() }).eq('sucursal_id', sucursalId);
         }
@@ -311,7 +312,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         fetchFinanzas(); 
     };
 
-    // 🚀 LÓGICA DE RETIRO DE BÓVEDA POR JEFES
     const retirarDeBoveda = async () => {
         const monto = parseFloat(montoRetiroBoveda) || 0;
         if (monto <= 0) return alert('Monto inválido.');
@@ -321,7 +321,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         await supabase.from('movimientos_boveda').insert({
             sucursal_id: sucursalId,
             tipo: 'retiro_duenos',
-            monto: -monto, // Negativo porque es retiro
+            monto: -monto, 
             motivo: motivoRetiroBoveda.trim()
         });
 
@@ -385,7 +385,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 entradas: parts[3]?.split(':')[1] || 0, 
                 salidas: parts[4]?.split(':')[1] || 0, 
                 total: parts[5]?.split(':')[1] || 0, 
-                boveda: parts[6]?.split(':')[1] || 0, // Nueva propiedad
+                boveda: parts[6]?.split(':')[1] || 0,
                 fecha: movCorte.fecha, 
                 movimientos: [] 
             };
@@ -566,8 +566,13 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 const tipo = det.productos?.tipo || 'producto';
                 const nom = (det.productos?.nombre || '').toLowerCase();
                 
+                // 🚀 FIX: Filtro estricto para evitar inflar visitas con "Complementarios"
+                const esComplemento = nom.includes('complementario') || nom.includes('escaner');
+                
                 if (isClinical && tipo === 'servicio') {
-                    if(nom.includes('consulta') || det.productos?.es_consulta) sucursalesStats[v.sucursal_id].consultas += det.cantidad;
+                    if((nom.includes('consulta') || det.productos?.es_consulta) && !esComplemento) {
+                        sucursalesStats[v.sucursal_id].consultas += det.cantidad;
+                    }
                 } else {
                     sucursalesStats[v.sucursal_id].productos += det.cantidad;
                 }
@@ -594,9 +599,14 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
             const tipo = det.productos?.tipo || 'producto';
             const nom = (det.productos?.nombre || '').toLowerCase();
             
+            // 🚀 FIX: Filtro estricto para evitar inflar visitas con "Complementarios"
+            const esComplemento = nom.includes('complementario') || nom.includes('escaner');
+            
             if (isClinical && tipo === 'servicio') {
                 subtotalDoc += (det.cantidad * det.precio_unitario);
-                if(nom.includes('consulta') || det.productos?.es_consulta) consultasDoc += det.cantidad;
+                if((nom.includes('consulta') || det.productos?.es_consulta) && !esComplemento) {
+                    consultasDoc += det.cantidad;
+                }
             }
         });
 
@@ -856,7 +866,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
             ) : (
                 /* 🚀 VISTA NORMAL (SUCURSAL / GLOBAL) */
                 <>
-                    {/* DASHBOARD DE 5 TARJETAS PREMIUM (Incluyendo la Bóveda) */}
+                    {/* DASHBOARD DE 5 TARJETAS PREMIUM */}
                     <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px'}}>
                         
                         {/* 1. CAJA CHICA (Turno) */}
@@ -885,14 +895,13 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                         <button onClick={() => {setTipoMovCaja('fondo'); setShowCajaModal(true);}} style={{flex: 1, padding: '8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold', transition: '0.2s'}} onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.2)'} onMouseLeave={e => e.currentTarget.style.background='rgba(255,255,255,0.1)'}><i className="fa-solid fa-piggy-bank"></i> {t('fondoCajaBtn') || 'Fondo'}</button>
                                         <button onClick={() => {setTipoMovCaja('ingreso'); setShowCajaModal(true);}} style={{flex: 1, padding: '8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold', transition: '0.2s'}} onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.2)'} onMouseLeave={e => e.currentTarget.style.background='rgba(255,255,255,0.1)'}><i className="fa-solid fa-arrow-down"></i> {t('entradaBtn') || 'Ent.'}</button>
                                         <button onClick={() => {setTipoMovCaja('retiro'); setShowCajaModal(true);}} style={{flex: 1, padding: '8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold', transition: '0.2s'}} onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.2)'} onMouseLeave={e => e.currentTarget.style.background='rgba(255,255,255,0.1)'}><i className="fa-solid fa-arrow-up"></i> {t('salidaBtn') || 'Sal.'}</button>
-                                        {/* 🚀 BOTÓN DE CORTE INTERACTIVO */}
                                         <button onClick={() => { if(saldoCaja <= 0) alert('La caja está en cero.'); else setShowCorteModal(true); }} style={{flex: 1, padding: '8px', background: '#ef4444', border: 'none', color: 'white', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold', boxShadow: '0 2px 10px rgba(239, 68, 68, 0.4)'}}><i className="fa-solid fa-scissors"></i> {t('corteCajaBtn') || 'Corte'}</button>
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        {/* 🚀 2. CAJA FUERTE (BÓVEDA) - NUEVA TARJETA */}
+                        {/* 2. CAJA FUERTE (BÓVEDA) */}
                         <div className="dash-card-premium animate-slide-up" style={{ '--card-color': '#475569', position: 'relative', overflow: 'hidden', animationDelay: '0.15s' }}>
                             <div style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', zIndex: 0}}></div>
                             <div style={{position: 'relative', zIndex: 1, color: 'white', display: 'flex', flexDirection: 'column', height: '100%'}}>
@@ -963,7 +972,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         </div>
                     </div>
 
-                    {/* 🚀 PESTAÑAS MODERNAS (TABS) */}
+                    {/* PESTAÑAS MODERNAS (TABS) */}
                     <div style={{display: 'flex', gap: '30px', borderBottom: '2px solid var(--border-color)', marginTop: '10px', overflowX: 'auto', paddingBottom: '5px'}}>
                         <button onClick={() => setActiveTab('clinica')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'clinica' ? '3px solid #0288d1' : '3px solid transparent', color: activeTab === 'clinica' ? '#0288d1' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s', whiteSpace: 'nowrap'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> {t('consultasAcupuntura') || 'Consultas (Acupuntura)'} ({consultasFiltradas.length})</button>
                         <button onClick={() => setActiveTab('extras')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'extras' ? '3px solid #f57c00' : '3px solid transparent', color: activeTab === 'extras' ? '#f57c00' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s', whiteSpace: 'nowrap'}}><i className="fa-solid fa-box-open" style={{marginRight: '8px'}}></i> {t('prodHuanqiu') || 'Prod. y Extras (Huanqiu)'} ({productosFiltrados.length})</button>
@@ -1096,7 +1105,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                             </div>
                         )}
 
-                        {/* 🚀 TAB 4: AUDITORÍA CAJA FUERTE (BÓVEDA) */}
+                        {/* TAB 4: AUDITORÍA CAJA FUERTE (BÓVEDA) */}
                         {activeTab === 'boveda' && (
                             <div className="animate-fade-in" style={{maxHeight: '500px', overflowY: 'auto', background: 'var(--bg-panel)'}}>
                                 <table className="data-table">
@@ -1163,7 +1172,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* 🚀 MODAL DE CORTE DE CAJA INTERACTIVO (TRANSFERENCIA A BÓVEDA) */}
+            {/* MODAL DE CORTE DE CAJA INTERACTIVO (TRANSFERENCIA A BÓVEDA) */}
             {showCorteModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '500px', border: '1px solid #10b981', boxShadow: '0 20px 50px rgba(16, 185, 129, 0.2)', textAlign: 'left', overflow: 'hidden'}}>
@@ -1192,7 +1201,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* 🚀 MODAL RETIRO DE BÓVEDA (SOLO JEFES/ADMIN) */}
+            {/* MODAL RETIRO DE BÓVEDA (SOLO JEFES/ADMIN) */}
             {showRetiroBovedaModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '450px', border: '1px solid #475569', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', textAlign: 'left', overflow: 'hidden'}}>
@@ -1253,9 +1262,9 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 .dash-card-premium:hover { transform: translateY(-5px); box-shadow: 0 15px 30px -5px rgba(0,0,0,0.1), 0 0 20px 0 var(--card-color) inset; border-color: var(--card-color); }
                 .dash-card-premium:hover::before { opacity: 0.15; }
                 .breakdown-section { margin-top: auto; padding-top: 20px; border-top: 1px dashed var(--border-color); font-size: 0.85rem; display: flex; flex-direction: column; gap: 8px; }
-                .breakdown-section div { display: flex; justify-content: space-between; color: var(--text-muted); }
+                .breakdown-section div { display: flex; justifyContent: space-between; color: var(--text-muted); }
                 
-                .receipt-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 0.95rem; }
+                .receipt-row { display: flex; justifyContent: space-between; alignItems: center; margin-bottom: 12px; font-size: 0.95rem; }
                 .r-label { color: rgba(255,255,255,0.7); font-weight: 600; }
                 .r-value { font-family: monospace; font-weight: bold; font-size: 1.1rem; }
                 .r-value.neutral { color: #ffffff; }
