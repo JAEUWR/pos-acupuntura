@@ -25,8 +25,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [selectedDoctor, setSelectedDoctor] = useState('');
 
-    const [historialHoy, setHistorialHoy] = useState([]);
-    // 🚀 NUEVO ESTADO PARA EL MODAL DEL HISTORIAL
+    // 🚀 NUEVOS ESTADOS PARA EL HISTORIAL DINÁMICO
+    const [historialVentas, setHistorialVentas] = useState([]);
+    const [historialDate, setHistorialDate] = useState(() => new Date().toISOString().split('T')[0]);
     const [showHistorialModal, setShowHistorialModal] = useState(false);
     
     const scannerInputRef = useRef(null);
@@ -80,17 +81,33 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         if (docs) setDoctoresDB(docs);
     };
 
-    const fetchHistorialHoy = async () => {
-        const hoy = new Date().toISOString().split('T')[0];
-        const { data } = await supabase.from('ventas').select(`id, fecha, total, metodo_pago, vendedor_nombre, notas, estatus, clientes ( nombre ), venta_detalles ( cantidad, producto_id, productos ( nombre, tipo ) )`).eq('sucursal_id', sucursalId).gte('fecha', `${hoy}T00:00:00`).order('fecha', { ascending: false });
-        if (data) setHistorialHoy(data);
+    // 🚀 LÓGICA DE HISTORIAL MODIFICADA PARA ACEPTAR CUALQUIER FECHA
+    const fetchHistorialVentas = async () => {
+        const startOfDay = `${historialDate}T00:00:00`;
+        const endOfDay = `${historialDate}T23:59:59`;
+
+        const { data } = await supabase.from('ventas')
+            .select(`id, fecha, total, metodo_pago, vendedor_nombre, notas, estatus, clientes ( nombre ), venta_detalles ( cantidad, producto_id, productos ( nombre, tipo ) )`)
+            .eq('sucursal_id', sucursalId)
+            .gte('fecha', startOfDay)
+            .lte('fecha', endOfDay)
+            .order('fecha', { ascending: false });
+            
+        if (data) setHistorialVentas(data);
     };
 
     useEffect(() => {
         fetchDatos();
-        fetchHistorialHoy();
+        fetchHistorialVentas();
         scannerInputRef.current?.focus();
     }, [branch]);
+
+    // 🚀 DISPARADOR PARA RECARGAR EL HISTORIAL SI CAMBIAN LA FECHA EN EL MODAL
+    useEffect(() => {
+        if (showHistorialModal) {
+            fetchHistorialVentas();
+        }
+    }, [historialDate, showHistorialModal]);
 
     const modalsState = useRef({ cat: false, cli: false, drop: false, conf: false, hist: false });
     useEffect(() => { modalsState.current = { cat: showCatalogModal, cli: showNewClientModal, drop: showClientSearchModal, conf: showConfirmModal, hist: showHistorialModal }; }, [showCatalogModal, showNewClientModal, showClientSearchModal, showConfirmModal, showHistorialModal]);
@@ -186,31 +203,25 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         }
     };
 
-    // 🚀 LÓGICA DE CANCELACIÓN CON DEVOLUCIÓN DE INVENTARIO
     const cancelarVenta = async (venta) => {
         if (!window.confirm(t('confirmarCancelacion') || `¿Estás seguro de cancelar el folio #${venta.id}?\n\nEsta acción:\n1. Anulará la venta en los reportes financieros.\n2. Devolverá los productos físicos al inventario.\n3. Retirará el efectivo cobrado de la caja física.`)) return;
 
-        // 1. Cambiamos el estatus a cancelada
         const { error } = await supabase.from('ventas').update({ estatus: 'cancelada' }).eq('id', venta.id);
         if (error) {
             alert('Error al cancelar la venta: ' + error.message);
             return;
         }
 
-        // 2. 🚀 Devolver productos al inventario
-        // Solo devolvemos si no son consultas o servicios infinitos
         for (const detalle of venta.venta_detalles) {
             if (detalle.productos?.tipo !== 'servicio' && detalle.productos?.tipo !== 'consulta') {
-                // Obtenemos el stock actual de ese producto en esta sucursal
                 const { data: invData } = await supabase.from('inventario').select('stock').eq('producto_id', detalle.producto_id).eq('sucursal_id', sucursalId).single();
                 if (invData) {
-                    const nuevoStock = invData.stock + detalle.cantidad; // Devolvemos la cantidad vendida
+                    const nuevoStock = invData.stock + detalle.cantidad; 
                     await supabase.from('inventario').update({ stock: nuevoStock }).eq('producto_id', detalle.producto_id).eq('sucursal_id', sucursalId);
                 }
             }
         }
 
-        // 3. Ajuste de Caja Fuerte (Si hubo efectivo involucrado, lo retiramos con nombre explícito)
         let montoEfectivo = 0;
         const pagoLower = venta.metodo_pago.toLowerCase();
         
@@ -232,9 +243,8 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
         alert(t('ventaCanceladaExito') || 'Venta cancelada exitosamente y productos devueltos al inventario.');
         
-        // Refrescamos inventario visual y el historial
         fetchDatos();
-        fetchHistorialHoy(); 
+        fetchHistorialVentas(); 
     };
 
     let subtotalBruto = 0;
@@ -366,9 +376,8 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             setCart([]); setSelectedClient(''); setMontoRecibido(''); setFolioTransferencia(''); setMontosMixtos({efectivo:'', tarjeta:'', transferencia:''});
             setSaleNotes(''); setSelectedDoctor(''); setShowConfirmModal(false);
             
-            // Refresca catálogo para actualizar inventario y el historial
             fetchDatos();
-            fetchHistorialHoy();
+            fetchHistorialVentas(); // 🚀 ACTUALIZAMOS LA LLAMADA AL NUEVO ESTADO
         }
     };
 
@@ -378,7 +387,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     return (
         <div className="view-section active" style={{ display: 'flex', flexDirection: 'column', overflowY: 'hidden', paddingRight: '5px' }}>
             
-            {/* 🚀 ÁREA PRINCIPAL POS (AHORA OCUPA TODO EL ALTO) */}
             <div style={{ display: 'flex', gap: '25px', height: '100%', flex: '1 1 auto' }}>
                 
                 {/* PANEL IZQUIERDO (CARRITO) */}
@@ -673,13 +681,22 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* 🚀 MODAL: HISTORIAL DEL DÍA FLOTANTE */}
+            {/* 🚀 MODAL: HISTORIAL DINÁMICO FLOTANTE */}
             {showHistorialModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '1000px', maxWidth: '95vw', border: '1px solid var(--border-color)', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '85vh'}}>
                         
                         <div style={{background: 'var(--bg-main)', padding: '25px 30px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                            <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-clock-history" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('historialDia')} - {branch.toUpperCase()}</h3>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '20px'}}>
+                                <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-clock-history" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('historialVentas') || 'Historial de Ventas'} - {branch.toUpperCase()}</h3>
+                                {/* 🚀 SELECTOR DE FECHA DINÁMICO */}
+                                <input 
+                                    type="date" 
+                                    value={historialDate} 
+                                    onChange={(e) => setHistorialDate(e.target.value)}
+                                    style={{padding: '8px 15px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', outline: 'none', fontWeight: 'bold'}}
+                                />
+                            </div>
                             <button onClick={() => setShowHistorialModal(false)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
                         </div>
 
@@ -698,7 +715,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {historialHoy.map(venta => {
+                                    {historialVentas.map(venta => {
                                         const isCancelada = venta.estatus === 'cancelada';
                                         return (
                                         <tr key={venta.id} style={{ opacity: isCancelada ? 0.6 : 1, background: isCancelada ? 'rgba(239, 68, 68, 0.05)' : 'transparent', transition: 'all 0.3s' }}>
@@ -728,7 +745,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                             </td>
                                         </tr>
                                     )})}
-                                    {historialHoy.length === 0 && <tr><td colSpan="8" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-receipt fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos') || 'No se han registrado ventas hoy.'}</td></tr>}
+                                    {historialVentas.length === 0 && <tr><td colSpan="8" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-receipt fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatosFecha') || 'No se registraron ventas en esta fecha.'}</td></tr>}
                                 </tbody>
                             </table>
                         </div>
