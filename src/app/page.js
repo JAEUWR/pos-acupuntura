@@ -1,14 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
-// IMPORTACIÓN DINÁMICA DE NEXT.JS
 import dynamic from 'next/dynamic'; 
 import { supabase } from '../lib/supabase';
 import Login from '../components/Login';
-
-// Mantenemos static el LanguageContext y LanguageProvider porque suelen necesitar SSR para el idioma base.
 import { LanguageProvider, useLanguage } from '../context/LanguageContext';
 
-// 🚀 IMPORTAMOS TODOS LOS MÓDULOS DEL CLIENTE CON SSR DESACTIVADO
 const Ventas = dynamic(() => import('../components/Ventas'), { ssr: false });
 const ConsumosMedicos = dynamic(() => import('../components/ConsumosMedicos'), { ssr: false });
 const Inventario = dynamic(() => import('../components/Inventario'), { ssr: false });
@@ -17,9 +13,8 @@ const Promociones = dynamic(() => import('../components/Promociones'), { ssr: fa
 const Clientes = dynamic(() => import('../components/Clientes'), { ssr: false });
 const Configuracion = dynamic(() => import('../components/Configuracion'), { ssr: false });
 const EscritorioMedico = dynamic(() => import('../components/EscritorioMedico'), { ssr: false });
-const Calendar = dynamic(() => import('../components/Agenda'), { ssr: false }); // 🚀 Aquí está tu importación
+const Calendar = dynamic(() => import('../components/Agenda'), { ssr: false });
 
-// COMPONENTE INTERNO DEL DASHBOARD
 function DashboardApp({ session, perfil, branch, setBranch }) {
     const contextoIdioma = useLanguage() || {};
     const t = contextoIdioma.t || ((key) => key);
@@ -34,9 +29,12 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
     const [isDarkMode, setIsDarkMode] = useState(true);
     const [activeView, setActiveView] = useState('ventas');
     
-    // ESTADO: Menú Deslizable
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
+
+    // 🚀 ESTADOS PARA LA ALERTA INTELIGENTE DE FONDO
+    const [faltaFondo, setFaltaFondo] = useState(false);
+    const [autoOpenFondo, setAutoOpenFondo] = useState(false);
 
     const branchesOptions = {
         napoles: 'Sucursal Nápoles',
@@ -52,10 +50,34 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
         await supabase.auth.signOut();
     };
 
+    // 🚀 VERIFICADOR SILENCIOSO DEL FONDO DE CAJA
+    useEffect(() => {
+        const checkFondoDia = async () => {
+            const branchMapReverse = { napoles: 1, obrera: 2, pedregal: 3 };
+            const sucId = branchMapReverse[branch] || 1;
+            const hoy = new Date().toISOString().split('T')[0];
+            
+            const { data } = await supabase
+                .from('movimientos_caja')
+                .select('tipo, motivo')
+                .eq('sucursal_id', sucId)
+                .gte('fecha', `${hoy}T00:00:00`)
+                .order('fecha', { ascending: false });
+
+            if (data) {
+                const idxLastCorte = data.findIndex(m => m.tipo === 'corte_caja');
+                const movsTurno = idxLastCorte === -1 ? data : data.slice(0, idxLastCorte);
+                const tieneFondo = movsTurno.some(m => m.tipo === 'ingreso_manual' && m.motivo.toLowerCase().includes('fondo'));
+                setFaltaFondo(!tieneFondo);
+            }
+        };
+        // Se ejecuta al cargar y cada vez que cambian de pestaña (para ocultarse sola si ya lo pusieron)
+        checkFondoDia();
+    }, [branch, activeView]);
+
     return (
         <div className="app-container oriental-theme" suppressHydrationWarning>
             
-            {/* 🚀 SLIDEBAR (MENÚ LATERAL COLAPSABLE) */}
             <div className={`sidebar-premium ${isSidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
                 
                 <button 
@@ -81,7 +103,6 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                         <h2 className="logo-text">Acupuntura HK</h2>
                     </div>
 
-                    {/* MÓDULOS DE NAVEGACIÓN */}
                     <div style={{ flex: 1, padding: isSidebarOpen ? '20px 15px' : '20px 10px', display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', overflowX: 'hidden', transition: 'padding 0.4s' }}>
                         <button onClick={() => setActiveView('ventas')} className={`nav-btn ${activeView === 'ventas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('puntoVenta') || 'Punto de Venta') : ''}>
                             <i className="fa-solid fa-cash-register"></i> <span className="nav-label">{t('puntoVenta') || 'Punto de Venta'}</span>
@@ -89,26 +110,20 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                         <button onClick={() => setActiveView('finanzas')} className={`nav-btn ${activeView === 'finanzas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('movimientosFinanzas') || 'Movimientos y Finanzas') : ''}>
                             <i className="fa-solid fa-chart-pie"></i> <span className="nav-label">{t('movimientosFinanzas') || 'Movimientos y Finanzas'}</span>
                         </button>
+                        <button onClick={() => setActiveView('calendar')} className={`nav-btn ${activeView === 'calendar' ? 'active' : ''}`} title={!isSidebarOpen ? (t('agendaClinica') || 'Agenda Clínica') : ''}>
+                            <i className="fa-regular fa-calendar-check"></i> <span className="nav-label">{t('agendaClinica') || 'Agenda Clínica'}</span>
+                        </button>
                         <button onClick={() => setActiveView('doctores')} className={`nav-btn ${activeView === 'doctores' ? 'active' : ''}`} title={!isSidebarOpen ? (t('consumosMedicos') || 'Consumos Médicos') : ''}>
                             <i className="fa-solid fa-syringe"></i> <span className="nav-label">{t('consumosMedicos') || 'Consumos Médicos'}</span>
                         </button>
                         <button onClick={() => setActiveView('clientes')} className={`nav-btn ${activeView === 'clientes' ? 'active' : ''}`} title={!isSidebarOpen ? (t('clientes') || 'Recepción') : ''}>
                             <i className="fa-solid fa-users"></i> <span className="nav-label">{t('clientes') || 'Recepción'}</span>
                         </button>
-                        
-                        {/* 🚀 AQUÍ ESTÁ EL BOTÓN DE LA AGENDA QUE FALTABA */}
-                        <button onClick={() => setActiveView('calendar')} className={`nav-btn ${activeView === 'calendar' ? 'active' : ''}`} title={!isSidebarOpen ? (t('agenda') || 'Agenda') : ''}>
-                            <i className="fa-regular fa-calendar-check"></i> <span className="nav-label">{t('agenda') || 'Agenda Clínica'}</span>
-                        </button>
-
                         <button onClick={() => setActiveView('escritorioMedico')} className={`nav-btn ${activeView === 'escritorioMedico' ? 'active' : ''}`} title={!isSidebarOpen ? (t('escritorioMedico') || 'Escritorio Médico') : ''}>
                             <i className="fa-solid fa-user-doctor"></i> <span className="nav-label">{t('escritorioMedico') || 'Escritorio Médico'}</span>
                         </button>
-                        <button onClick={() => setActiveView('inventario')} className={`nav-btn ${activeView === 'inventario' ? 'active' : ''}`} title={!isSidebarOpen ? (t('inventario') || 'Inventario') : ''}>
-                            <i className="fa-solid fa-boxes-stacked"></i> <span className="nav-label">{t('inventario') || 'Inventario'}</span>
-                        </button>
-                        <button onClick={() => setActiveView('promociones')} className={`nav-btn ${activeView === 'promociones' ? 'active' : ''}`} title={!isSidebarOpen ? (t('promociones') || 'Promociones') : ''}>
-                            <i className="fa-solid fa-tags"></i> <span className="nav-label">{t('promociones') || 'Promociones'}</span>
+                        <button onClick={() => setActiveView('inventario')} className={`nav-btn ${activeView === 'inventario' ? 'active' : ''}`} title={!isSidebarOpen ? (t('inventario') || 'Inventario y Promos') : ''}>
+                            <i className="fa-solid fa-boxes-stacked"></i> <span className="nav-label">{t('inventario') || 'Inventario y Promos'}</span>
                         </button>
                     </div>
 
@@ -123,9 +138,23 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                 </div>
             </div>
 
-            {/* ÁREA PRINCIPAL DERECHA */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', zIndex: 1 }}>
                 
+                {/* 🚀 ALERTA FLOTANTE INTELIGENTE */}
+                {faltaFondo && activeView !== 'finanzas' && (
+                    <div 
+                        className="floating-alert animate-bounce-drop"
+                        onClick={() => { setActiveView('finanzas'); setAutoOpenFondo(true); }}
+                    >
+                        <div className="alert-icon pulse-warning"><i className="fa-solid fa-triangle-exclamation"></i></div>
+                        <div className="alert-content">
+                            <strong>¡Fondo de Caja Pendiente!</strong>
+                            <span>Haz clic aquí para declararlo y abrir el turno.</span>
+                        </div>
+                        <i className="fa-solid fa-chevron-right alert-arrow"></i>
+                    </div>
+                )}
+
                 <div style={{ 
                     padding: '15px 30px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
                     background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-color)', 
@@ -208,24 +237,19 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                     </div>
                 </div>
 
-                {/* CONTENEDOR DE LAS VISTAS */}
                 <div className="content-on-top" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
                     {activeView === 'ventas' && <Ventas branch={branch} perfilActual={perfil} />}
-                    {activeView === 'finanzas' && <Finanzas branch={branch} perfilActual={perfil} />}
-                    
-                    {/* 🚀 AQUÍ ESTÁ TU RENDERIZADO */}
+                    {/* 🚀 AQUÍ LE PASAMOS EL TRIGGER A FINANZAS */}
+                    {activeView === 'finanzas' && <Finanzas branch={branch} perfilActual={perfil} autoOpenFondo={autoOpenFondo} setAutoOpenFondo={setAutoOpenFondo} />}
                     {activeView === 'calendar' && <Calendar branch={branch} perfilActual={perfil} />}
-                    
                     {activeView === 'doctores' && <ConsumosMedicos branch={branch} />}
-                    {activeView === 'inventario' && <Inventario branch={branch} />}
-                    {activeView === 'promociones' && <Promociones />}
+                    {activeView === 'inventario' && <Inventario branch={branch} perfilActual={perfil} />}
                     {activeView === 'clientes' && <Clientes branch={branch} perfilActual={perfil}/>}
                     {activeView === 'escritorioMedico' && <EscritorioMedico branch={branch} perfilActual={perfil} />}
                     {activeView === 'configuracion' && <Configuracion perfilActual={perfil} />}
                 </div>
             </div>
 
-            {/* ESTILOS MAESTROS GLOBAL */}
             <style jsx global>{`
                 .app-container { display: flex; height: 100vh; width: 100vw; overflow: hidden; background-color: var(--bg-main); }
                 .oriental-theme { position: relative; }
@@ -267,12 +291,25 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                 .sidebar-collapsed .nav-btn { padding: 14px 0; justify-content: center; }
                 .sidebar-collapsed .nav-btn i { font-size: 1.3rem; margin: 0; }
                 .sidebar-collapsed .nav-label { opacity: 0; width: 0; margin-left: 0; transform: translateX(-10px); display: none; }
+
+                /* 🚀 ESTILOS DE LA ALERTA FLOTANTE */
+                .floating-alert { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #ef4444, #dc2626); color: white; padding: 12px 25px; border-radius: 50px; display: flex; align-items: center; gap: 15px; box-shadow: 0 10px 25px rgba(239, 68, 68, 0.4); cursor: pointer; z-index: 1000; transition: all 0.3s ease; }
+                .floating-alert:hover { box-shadow: 0 15px 35px rgba(239, 68, 68, 0.6); transform: translateX(-50%) scale(1.03); }
+                .alert-icon { background: rgba(255,255,255,0.2); width: 35px; height: 35px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 1.2rem; }
+                .pulse-warning { animation: pulseWarning 1.5s infinite; }
+                .alert-content { display: flex; flex-direction: column; }
+                .alert-content strong { font-size: 0.95rem; letter-spacing: 0.5px; }
+                .alert-content span { font-size: 0.75rem; opacity: 0.9; }
+                .alert-arrow { margin-left: 10px; font-size: 1.2rem; opacity: 0.7; }
+                
+                @keyframes pulseWarning { 0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); } }
+                .animate-bounce-drop { animation: bounceDrop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+                @keyframes bounceDrop { 0% { top: -100px; opacity: 0; } 100% { top: 30px; opacity: 1; } }
             `}</style>
         </div>
     );
 }
 
-// COMPONENTE PRINCIPAL BLINDADO
 export default function Home() {
     const [isMounted, setIsMounted] = useState(false);
     const [session, setSession] = useState(null);

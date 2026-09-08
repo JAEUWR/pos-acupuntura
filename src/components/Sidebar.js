@@ -97,12 +97,6 @@ export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
                     </button>
                 )}
                 
-                {hasAccess('promociones') && (
-                    <button style={getBtnStyle('promociones')} onClick={() => setActiveView('promociones')}>
-                        <i className="fa-solid fa-tags" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('promociones')}
-                    </button>
-                )}
-                
                 {hasAccess('configuracion') && (
                     <button style={getBtnStyle('configuracion')} onClick={() => setActiveView('configuracion')}>
                         <i className="fa-solid fa-gear" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('configuracion')}

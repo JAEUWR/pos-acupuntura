@@ -25,7 +25,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [selectedDoctor, setSelectedDoctor] = useState('');
 
-    // 🚀 NUEVOS ESTADOS PARA EL HISTORIAL DINÁMICO
     const [historialVentas, setHistorialVentas] = useState([]);
     const [historialDate, setHistorialDate] = useState(() => new Date().toISOString().split('T')[0]);
     const [showHistorialModal, setShowHistorialModal] = useState(false);
@@ -81,7 +80,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         if (docs) setDoctoresDB(docs);
     };
 
-    // 🚀 LÓGICA DE HISTORIAL MODIFICADA PARA ACEPTAR CUALQUIER FECHA
     const fetchHistorialVentas = async () => {
         const startOfDay = `${historialDate}T00:00:00`;
         const endOfDay = `${historialDate}T23:59:59`;
@@ -102,7 +100,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         scannerInputRef.current?.focus();
     }, [branch]);
 
-    // 🚀 DISPARADOR PARA RECARGAR EL HISTORIAL SI CAMBIAN LA FECHA EN EL MODAL
     useEffect(() => {
         if (showHistorialModal) {
             fetchHistorialVentas();
@@ -241,6 +238,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             });
         }
 
+        // 🚀 REGISTRO AUDITORÍA DE CANCELACIÓN EN EL INVENTARIO
+        await supabase.from('historial_inventario').insert([{
+            sucursal_id: sucursalId,
+            cantidad: 0,
+            tipo_movimiento: 'sistema',
+            motivo: `El usuario canceló y revirtió la Venta Folio #${venta.id}`,
+            usuario_nombre: perfilActual?.nombre || 'Usuario Desconocido'
+        }]);
+
         alert(t('ventaCanceladaExito') || 'Venta cancelada exitosamente y productos devueltos al inventario.');
         
         fetchDatos();
@@ -353,12 +359,20 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         } else {
             const { data: latestSale } = await supabase.from('ventas').select('id').eq('sucursal_id', sucursalId).order('fecha', { ascending: false }).limit(1);
             if (latestSale && latestSale.length > 0) {
+                const saleId = latestSale[0].id;
+                
                 await supabase.from('ventas').update({ 
                     vendedor_nombre: perfilActual?.nombre || 'Recepcionista',
                     doctor_id: selectedDoctor ? parseInt(selectedDoctor) : null,
                     notas: saleNotes.trim() || null,
                     estatus: 'completada' 
-                }).eq('id', latestSale[0].id);
+                }).eq('id', saleId);
+
+                // 🚀 FIX AUDITORÍA: SOBRESCRIBIMOS "SISTEMA" POR EL USUARIO REAL EN EL INVENTARIO
+                await supabase.from('historial_inventario')
+                    .update({ usuario_nombre: perfilActual?.nombre || 'Recepcionista' })
+                    .ilike('motivo', `Venta #${saleId}%`)
+                    .eq('sucursal_id', sucursalId);
             }
 
             if (cashToRegister > 0) {
@@ -377,7 +391,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             setSaleNotes(''); setSelectedDoctor(''); setShowConfirmModal(false);
             
             fetchDatos();
-            fetchHistorialVentas(); // 🚀 ACTUALIZAMOS LA LLAMADA AL NUEVO ESTADO
+            fetchHistorialVentas(); 
         }
     };
 
@@ -572,7 +586,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         </div>
                     </div>
 
-                    {/* TOTALES, BOTÓN DE COBRO Y 🚀 NUEVO BOTÓN HISTORIAL (FIJOS AL FONDO) */}
+                    {/* TOTALES, BOTÓN DE COBRO Y BOTÓN HISTORIAL (FIJOS AL FONDO) */}
                     <div style={{ padding: '25px', background: 'var(--bg-panel)', borderTop: '1px solid var(--border-color)', marginTop: 'auto', flexShrink: 0, boxShadow: '0 -4px 20px rgba(0,0,0,0.05)' }}>
                         <div style={{display:'flex', justifyContent:'space-between', color:'var(--text-muted)', marginBottom:'10px', fontSize: '1rem', fontWeight: 'bold'}}><span>{t('subtotal')}</span><span>${subtotalBruto.toFixed(2)}</span></div>
                         <div style={{display:'flex', justifyContent:'space-between', color:'var(--accent)', marginBottom:'15px', fontSize: '1rem', fontWeight: 'bold'}}><span>{t('descuentos')}</span><span>-${totalDescuentos.toFixed(2)}</span></div>
@@ -583,7 +597,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         </div>
                         
                         <div style={{display: 'flex', gap: '15px'}}>
-                            {/* 🚀 BOTÓN HISTORIAL MINIMIZADO */}
                             <button onClick={() => setShowHistorialModal(true)} className="btn-action" style={{flex: 1, padding: '20px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.3s'}}>
                                 <i className="fa-solid fa-clock-history"></i> Historial
                             </button>
@@ -601,7 +614,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             </div>
 
-            {/* 🚀 MODAL DE CONFIRMACIÓN DE VENTA Y DOCTOR (TARJETONES GIGANTES) */}
+            {/* MODAL DE CONFIRMACIÓN DE VENTA Y DOCTOR */}
             {showConfirmModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '550px', border: '1px solid var(--border-color)', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden'}}>
@@ -632,7 +645,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                 </div>
                             </div>
 
-                            {/* 🚀 ASIGNACIÓN DE DOCTOR (TARJETONES GIGANTES) */}
+                            {/* ASIGNACIÓN DE DOCTOR */}
                             {hasConsulta && (
                                 <div style={{background: 'rgba(2, 136, 209, 0.05)', border: '1px solid rgba(2, 136, 209, 0.3)', padding: '20px', borderRadius: '12px', marginBottom: '20px'}}>
                                     <label style={{display: 'block', color: '#0288d1', fontWeight: '900', fontSize: '1.1rem', marginBottom: '10px'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> ¿Qué Médico atendió la consulta? *</label>
@@ -681,7 +694,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* 🚀 MODAL: HISTORIAL DINÁMICO FLOTANTE */}
+            {/* MODAL: HISTORIAL DINÁMICO FLOTANTE */}
             {showHistorialModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '1000px', maxWidth: '95vw', border: '1px solid var(--border-color)', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '85vh'}}>
@@ -689,7 +702,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         <div style={{background: 'var(--bg-main)', padding: '25px 30px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                             <div style={{display: 'flex', alignItems: 'center', gap: '20px'}}>
                                 <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-clock-history" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('historialVentas') || 'Historial de Ventas'} - {branch.toUpperCase()}</h3>
-                                {/* 🚀 SELECTOR DE FECHA DINÁMICO */}
                                 <input 
                                     type="date" 
                                     value={historialDate} 
@@ -753,7 +765,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* MODAL: BUSCADOR DE PACIENTES CON BOTÓN PARA VER LEGACY */}
+            {/* MODAL: BUSCADOR DE PACIENTES */}
             {showClientSearchModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '16px', width: '550px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left', display: 'flex', flexDirection: 'column', maxHeight: '80vh'}}>
