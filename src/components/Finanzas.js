@@ -135,7 +135,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 const totalVentaOriginal = parseFloat(v.total) || 0;
                 const esMixto = pago.toLowerCase().includes('mixto');
                 const docName = v.doctor_id ? (resDocs.data?.find(d => d.id === v.doctor_id)?.nombre || `Doctor #${v.doctor_id}`) : 'N/A';
-                const isClinicalTicket = v.venta_detalles?.some(det => det.productos?.es_consulta === true);
 
                 let consultaItems = [];
                 let importeConsultas = 0;
@@ -147,25 +146,25 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                     const precio = parseFloat(det.precio_unitario);
                     const importeDetalle = cant * precio;
                     const nombreArticulo = det.productos?.nombre || 'Art. Eliminado';
-                    const tipoArticulo = det.productos?.tipo || 'producto';
                     const nombreLower = nombreArticulo.toLowerCase();
-                    const esConsultaOficial = det.productos?.es_consulta === true; 
+                    
+                    // 🚀 NUEVA REGLA ESTRICTA DE AGRUPACIÓN:
+                    // SOLO es consulta si tiene el flag "es_consulta" activado, o si se llama literalmente "consulta".
+                    // Todo lo demás (escáner, servicios complementarios, agujas) se va a Huanqiu (Extras).
+                    const esConsultaOficial = det.productos?.es_consulta === true || nombreLower.includes('consulta'); 
                     
                     let valoresMixtos = { efectivo: 0, tarjeta: 0, transferencia: 0 };
                     if (esMixto) valoresMixtos = extraerValoresMixtos(pago, importeDetalle, totalVentaOriginal);
 
-                    if (isClinicalTicket && tipoArticulo === 'servicio') {
+                    if (esConsultaOficial) {
                         consultaItems.push(`${nombreArticulo} (x${cant})`);
                         importeConsultas += importeDetalle;
                         mixtosConsultas.efectivo += valoresMixtos.efectivo;
                         mixtosConsultas.tarjeta += valoresMixtos.tarjeta;
                         mixtosConsultas.transferencia += valoresMixtos.transferencia;
-
-                        const esComplemento = nombreLower.includes('complementario') || nombreLower.includes('escaner');
-                        if ((esConsultaOficial || nombreLower.includes('consulta')) && !esComplemento) {
-                            numVisitasReales += cant;
-                        }
+                        numVisitasReales += cant;
                     } else {
+                        // Todos los productos físicos y servicios no marcados como consulta van aquí
                         arrProductos.push({ folio: v.id, fecha: parseDBDate(v.fecha).toLocaleString(), sucursal: sucursalNombre, cliente: clienteNombre, articulo: nombreArticulo, cantidad: cant, precio: precio, importe: importeDetalle, metodo_pago: pago, esMixto, valoresMixtos });
                     }
                 });
@@ -404,7 +403,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 800);
     };
 
-    // 🚀 LÓGICA DE VISUALIZACIÓN SIN IMPRIMIR CORREGIDA
     const prepararVisualizacionTurno = (movCorte) => {
         try {
             const parts = movCorte.motivo.split('|');
@@ -454,7 +452,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         }
     };
 
-    // 🚀 NUEVA FUNCIÓN: EXPORTAR EXCEL BÓVEDA
     const exportarExcelBoveda = () => {
         if (bovedaFiltrada.length === 0) return alert('No hay movimientos de bóveda para exportar.');
         
@@ -636,18 +633,14 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
             sucursalesStats[v.sucursal_id].total += parseFloat(v.total);
             sucursalesStats[v.sucursal_id].tickets.add(v.id);
             
-            const isClinical = v.venta_detalles?.some(det => det.productos?.es_consulta === true);
-            
             v.venta_detalles?.forEach(det => {
-                const tipo = det.productos?.tipo || 'producto';
                 const nom = (det.productos?.nombre || '').toLowerCase();
                 
-                const esComplemento = nom.includes('complementario') || nom.includes('escaner');
+                // 🚀 REGLA DE ORO ESTRICTA:
+                const esConsultaOficial = det.productos?.es_consulta === true || nom.includes('consulta');
                 
-                if (isClinical && tipo === 'servicio') {
-                    if((nom.includes('consulta') || det.productos?.es_consulta) && !esComplemento) {
-                        sucursalesStats[v.sucursal_id].consultas += det.cantidad;
-                    }
+                if (esConsultaOficial) {
+                    sucursalesStats[v.sucursal_id].consultas += det.cantidad;
                 } else {
                     sucursalesStats[v.sucursal_id].productos += det.cantidad;
                 }
@@ -668,25 +661,24 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         if (!doctoresStats[docId]) doctoresStats[docId] = { nombre: doctoresCatalog.find(d => d.id === docId)?.nombre || 'Desconocido', ingresos: 0, consultas: 0, pacientes: {} };
         
         let subtotalDoc = 0; let consultasDoc = 0;
-        const isClinical = v.venta_detalles?.some(det => det.productos?.es_consulta === true);
         
         v.venta_detalles?.forEach(det => {
-            const tipo = det.productos?.tipo || 'producto';
             const nom = (det.productos?.nombre || '').toLowerCase();
             
-            const esComplemento = nom.includes('complementario') || nom.includes('escaner');
+            // 🚀 REGLA DE ORO ESTRICTA:
+            const esConsultaOficial = det.productos?.es_consulta === true || nom.includes('consulta');
             
-            if (isClinical && tipo === 'servicio') {
+            if (esConsultaOficial) {
                 subtotalDoc += (det.cantidad * det.precio_unitario);
-                if((nom.includes('consulta') || det.productos?.es_consulta) && !esComplemento) {
-                    consultasDoc += det.cantidad;
-                }
+                consultasDoc += det.cantidad;
             }
         });
 
-        doctoresStats[docId].ingresos += subtotalDoc;
-        doctoresStats[docId].consultas += consultasDoc;
-        if (v.clientes?.nombre) doctoresStats[docId].pacientes[v.clientes.nombre] = (doctoresStats[docId].pacientes[v.clientes.nombre] || 0) + 1;
+        if (subtotalDoc > 0 || consultasDoc > 0) {
+            doctoresStats[docId].ingresos += subtotalDoc;
+            doctoresStats[docId].consultas += consultasDoc;
+            if (v.clientes?.nombre) doctoresStats[docId].pacientes[v.clientes.nombre] = (doctoresStats[docId].pacientes[v.clientes.nombre] || 0) + 1;
+        }
     });
 
     const chartDataDoctores = Object.values(doctoresStats).map(d => ({
@@ -966,7 +958,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
 
                                 {viewMode === 'sucursal' && dateMode === 'diario' && singleDate === new Date().toISOString().split('T')[0] && (
                                     <div style={{display: 'flex', gap: '8px'}}>
-                                        {/* 🚀 EL BOTÓN DE FONDO SOLO SE MUESTRA SI NO HAY UNO YA EN EL TURNO */}
                                         {!yaTieneFondo && (
                                             <button onClick={() => {setTipoMovCaja('fondo'); setShowCajaModal(true);}} style={{flex: 1, padding: '8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold', transition: '0.2s'}} onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.2)'} onMouseLeave={e => e.currentTarget.style.background='rgba(255,255,255,0.1)'} title="Establecer el Fondo con el que arranca el turno">
                                                 <i className="fa-solid fa-piggy-bank"></i> Fondo
@@ -1033,8 +1024,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         <button onClick={() => setActiveTab('clinica')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'clinica' ? '3px solid #0288d1' : '3px solid transparent', color: activeTab === 'clinica' ? '#0288d1' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s', whiteSpace: 'nowrap'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> {t('consultasAcupuntura') || 'Consultas (Acupuntura)'} ({consultasFiltradas.length})</button>
                         <button onClick={() => setActiveTab('extras')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'extras' ? '3px solid #f57c00' : '3px solid transparent', color: activeTab === 'extras' ? '#f57c00' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s', whiteSpace: 'nowrap'}}><i className="fa-solid fa-box-open" style={{marginRight: '8px'}}></i> {t('prodHuanqiu') || 'Prod. y Extras (Huanqiu)'} ({productosFiltrados.length})</button>
                         <button onClick={() => setActiveTab('caja')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'caja' ? '3px solid #10b981' : '3px solid transparent', color: activeTab === 'caja' ? '#10b981' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s', whiteSpace: 'nowrap'}}><i className="fa-solid fa-cash-register" style={{marginRight: '8px'}}></i> {t('tabAuditoria') || 'Auditoría de Caja Chica'} ({cajaFiltrada.length})</button>
-                        
-                        {/* 🚀 LA BÓVEDA AHORA VIVE SOLAMENTE AQUÍ (MÁS DISCRETA) */}
                         <button onClick={() => setActiveTab('boveda')} style={{padding: '15px 10px', background: 'transparent', border: 'none', borderBottom: activeTab === 'boveda' ? '3px solid #475569' : '3px solid transparent', color: activeTab === 'boveda' ? '#cbd5e1' : 'var(--text-muted)', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: 'all 0.3s', whiteSpace: 'nowrap'}}><i className="fa-solid fa-vault" style={{marginRight: '8px'}}></i> {t('tabBoveda') || 'Auditoría Caja Fuerte'} ({bovedaFiltrada.length})</button>
                     </div>
 
@@ -1174,7 +1163,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                     </div>
                                     {perfilActual?.rol === 'admin' && (
                                         <div style={{display: 'flex', gap: '15px'}}>
-                                            {/* 🚀 BOTÓN DE EXCEL EXCLUSIVO PARA BÓVEDA */}
                                             <button onClick={exportarExcelBoveda} className="btn-action" style={{padding: '15px 20px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#10b981', borderRadius: '12px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: '0.3s'}} onMouseEnter={e=>{e.currentTarget.style.background='#10b981'; e.currentTarget.style.color='white'}} onMouseLeave={e=>{e.currentTarget.style.background='rgba(16, 185, 129, 0.15)'; e.currentTarget.style.color='#10b981'}}>
                                                 <i className="fa-solid fa-file-excel"></i> Exportar
                                             </button>
@@ -1214,7 +1202,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 </>
             )}
 
-            {/* MODAL DE VISUALIZACIÓN DE TURNOS PASADOS (CAJA CHICA) */}
+            {/* MODALES FLOTANTES */}
             {shiftToView && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '600px', border: '1px solid var(--border-color)', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden'}}>
@@ -1252,44 +1240,26 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* 🚀 MODAL DE CORTE DE CAJA INTERACTIVO CON AUDITORÍA */}
             {showCorteModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '550px', border: '1px solid #10b981', boxShadow: '0 20px 50px rgba(16, 185, 129, 0.2)', textAlign: 'left', overflow: 'hidden'}}>
                         <div style={{background: 'var(--bg-main)', padding: '25px 30px', borderBottom: '1px solid var(--border-color)', textAlign: 'center'}}>
                             <h3 style={{margin: 0, color: '#10b981', fontSize: '1.6rem', fontWeight: '900'}}><i className="fa-solid fa-scissors" style={{marginRight: '10px'}}></i> Auditoría y Cierre de Turno</h3>
                         </div>
-                        
                         <div style={{padding: '30px', maxHeight: '60vh', overflowY: 'auto'}}>
-                            
                             <div style={{textAlign: 'center', marginBottom: '25px'}}>
                                 <span style={{fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 'bold'}}>Efectivo Esperado en Sistema</span>
                                 <div style={{fontSize: '3rem', fontWeight: '900', color: 'var(--text-main)', fontFamily: 'monospace'}}>${saldoCaja.toFixed(2)}</div>
                             </div>
-
                             <div style={{background: 'var(--bg-main)', border: '1px solid var(--border-color)', padding: '20px', borderRadius: '12px', marginBottom: '20px'}}>
                                 <label style={{fontSize: '0.9rem', color: 'var(--text-main)', display: 'block', marginBottom: '10px', fontWeight: 'bold'}}><i className="fa-solid fa-money-bill-wave" style={{color: 'var(--success)', marginRight: '5px'}}></i> ¿Cuánto efectivo contaste realmente?</label>
-                                <input 
-                                    type="number" 
-                                    value={efectivoContado} 
-                                    onChange={(e) => calcularDiscrepancia(e.target.value)} 
-                                    placeholder="Ingresa la cantidad física" 
-                                    autoFocus 
-                                    style={{width:'100%', padding:'15px', background:'var(--bg-panel)', color:'var(--text-main)', border: `2px solid ${diferenciaCorte === null ? 'var(--border-color)' : (diferenciaCorte === 0 ? 'var(--success)' : 'var(--primary-red)')}`, borderRadius: '10px', fontSize: '1.5rem', fontWeight: '900', textAlign: 'center', outline: 'none', transition: '0.3s'}} 
-                                />
-                                
-                                {/* 🚀 ALERTAS DE AUDITORÍA */}
+                                <input type="number" value={efectivoContado} onChange={(e) => calcularDiscrepancia(e.target.value)} placeholder="Ingresa la cantidad física" autoFocus style={{width:'100%', padding:'15px', background:'var(--bg-panel)', color:'var(--text-main)', border: `2px solid ${diferenciaCorte === null ? 'var(--border-color)' : (diferenciaCorte === 0 ? 'var(--success)' : 'var(--primary-red)')}`, borderRadius: '10px', fontSize: '1.5rem', fontWeight: '900', textAlign: 'center', outline: 'none', transition: '0.3s'}} />
                                 {diferenciaCorte !== null && (
                                     <div style={{marginTop: '15px', padding: '10px', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', background: diferenciaCorte === 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: diferenciaCorte === 0 ? '#10b981' : '#ef4444'}}>
-                                        {diferenciaCorte === 0 ? (
-                                            <><i className="fa-solid fa-check-circle"></i> ¡Todo en orden! Cuadre perfecto.</>
-                                        ) : (
-                                            <><i className="fa-solid fa-triangle-exclamation"></i> ⚠️ Discrepancia: {diferenciaCorte > 0 ? `Sobran $${Math.abs(diferenciaCorte).toFixed(2)}` : `Faltan $${Math.abs(diferenciaCorte).toFixed(2)}`}. Repórtalo a gerencia.</>
-                                        )}
+                                        {diferenciaCorte === 0 ? <><i className="fa-solid fa-check-circle"></i> ¡Todo en orden! Cuadre perfecto.</> : <><i className="fa-solid fa-triangle-exclamation"></i> ⚠️ Discrepancia: {diferenciaCorte > 0 ? `Sobran $${Math.abs(diferenciaCorte).toFixed(2)}` : `Faltan $${Math.abs(diferenciaCorte).toFixed(2)}`}. Repórtalo a gerencia.</>}
                                     </div>
                                 )}
                             </div>
-
                             {diferenciaCorte !== null && (
                                 <div className="animate-slide-up" style={{background: 'rgba(71, 85, 105, 0.1)', border: '1px solid rgba(71, 85, 105, 0.3)', padding: '20px', borderRadius: '12px'}}>
                                     <label style={{fontSize: '0.9rem', color: 'var(--text-main)', display: 'block', marginBottom: '10px', fontWeight: 'bold'}}><i className="fa-solid fa-vault" style={{color: '#94a3b8', marginRight: '5px'}}></i> Del dinero contado, ¿Cuánto envías a la Bóveda?</label>
@@ -1300,9 +1270,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                     </div>
                                 </div>
                             )}
-
                         </div>
-                        
                         <div style={{padding: '20px 30px', background: 'var(--bg-main)', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '15px'}}>
                             <button className="btn-action" style={{flex:1, padding: '16px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem'}} onClick={() => {setShowCorteModal(false); setMontoParaBoveda(''); setEfectivoContado(''); setDiferenciaCorte(null);}}>{t('cancelar') || 'Cancelar'}</button>
                             <button className="btn-primary" disabled={diferenciaCorte === null} style={{flex:2, padding: '16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: diferenciaCorte === null ? 'not-allowed' : 'pointer', opacity: diferenciaCorte === null ? 0.5 : 1, boxShadow: '0 5px 15px rgba(16, 185, 129, 0.3)'}} onClick={confirmarCorteYTransferencia}><i className="fa-solid fa-check"></i> {t('confirmarCorte') || 'Terminar Turno y Cortar'}</button>
@@ -1311,7 +1279,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* MODAL RETIRO DE BÓVEDA (SOLO JEFES/ADMIN) */}
             {showRetiroBovedaModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '450px', border: '1px solid #475569', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', textAlign: 'left', overflow: 'hidden'}}>
@@ -1319,15 +1286,12 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                             <h3 style={{margin: 0, color: '#cbd5e1', fontSize: '1.5rem', fontWeight: '900'}}><i className="fa-solid fa-money-bill-transfer" style={{marginRight: '10px'}}></i> {t('retiroBovedaTitulo') || 'Retiro de Caja Fuerte'}</h3>
                             <p style={{color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '5px'}}>Saldo actual resguardado: <strong style={{color: '#fff'}}>${saldoBoveda.toFixed(2)}</strong></p>
                         </div>
-                        
                         <div style={{padding: '30px'}}>
                             <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('montoEfectivoDesc') || 'Monto a Retirar ($)'}</label>
                             <input type="number" value={montoRetiroBoveda} onChange={(e) => setMontoRetiroBoveda(e.target.value)} placeholder="0.00" autoFocus style={{width:'100%', padding:'15px', marginBottom:'20px', background:'var(--bg-main)', color:'#cbd5e1', border: '2px solid #475569', borderRadius: '10px', fontSize: '2rem', fontWeight: '900', textAlign: 'center', outline: 'none'}} />
-                            
                             <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('motivoDescripcion') || 'Motivo / Descripción'}</label>
                             <input type="text" value={motivoRetiroBoveda} onChange={(e) => setMotivoRetiroBoveda(e.target.value)} placeholder="Ej. Depósito al banco, Retiro dueños..." style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} />
                         </div>
-                        
                         <div style={{padding: '20px 30px', background: 'var(--bg-main)', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '15px'}}>
                             <button className="btn-action" style={{flex:1, padding: '16px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem'}} onClick={() => {setShowRetiroBovedaModal(false); setMontoRetiroBoveda(''); setMotivoRetiroBoveda('');}}>{t('cancelar') || 'Cancelar'}</button>
                             <button className="btn-primary" style={{flex:2, padding: '16px', background: '#475569', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: 'pointer', boxShadow: '0 5px 15px rgba(0,0,0,0.3)'}} onClick={retirarDeBoveda}><i className="fa-solid fa-check"></i> {t('procesar') || 'Procesar Retiro'}</button>
@@ -1336,7 +1300,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* MODAL INGRESOS Y RETIROS MANUALES CAJA CHICA */}
             {showCajaModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '40px', borderRadius: '24px', width: '450px', border: `1px solid ${tipoMovCaja === 'retiro' ? '#ea580c' : (tipoMovCaja === 'fondo' ? '#10b981' : 'var(--accent)')}`, boxShadow: '0 20px 50px rgba(0,0,0,0.3)', textAlign: 'left'}}>
@@ -1345,19 +1308,15 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                             {tipoMovCaja === 'ingreso' && <><i className="fa-solid fa-arrow-down-to-line"></i> {t('ingresoCajaTitulo') || 'Ingreso de Efectivo'}</>}
                             {tipoMovCaja === 'retiro' && <><i className="fa-solid fa-arrow-up-from-bracket"></i> {t('retiroCajaTitulo') || 'Retiro de Efectivo'}</>}
                         </h3>
-                        
                         {tipoMovCaja === 'ingreso' && <p style={{textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '25px'}}>💡 {t('tipFondoCaja') || "Tip: Si es para arrancar el turno, incluye la palabra 'Fondo' en el motivo."}</p>}
-                        
                         <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('montoEfectivoDesc') || 'Monto en Efectivo ($)'}</label>
                         <input type="number" value={montoCaja} onChange={(e) => setMontoCaja(e.target.value)} placeholder="0.00" autoFocus style={{width:'100%', padding:'20px', marginBottom:'25px', background:'var(--bg-main)', color:'var(--text-main)', border: `2px solid ${tipoMovCaja === 'retiro' ? '#ea580c' : (tipoMovCaja === 'fondo' ? '#10b981' : 'var(--accent)')}`, borderRadius: '12px', fontSize: '2rem', fontWeight: '900', textAlign: 'center', outline: 'none'}} />
-                        
                         {tipoMovCaja !== 'fondo' && (
                             <>
                                 <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('motivoDescripcion') || 'Motivo / Descripción'}</label>
                                 <input type="text" value={motivoCaja} onChange={(e) => setMotivoCaja(e.target.value)} placeholder={tipoMovCaja === 'ingreso' ? 'Ej. Abono, etc.' : 'Ej. Pago de garrafones...'} style={{width:'100%', padding:'16px', marginBottom:'35px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontSize: '1.05rem', outline: 'none'}} />
                             </>
                         )}
-                        
                         <div style={{display:'flex', gap:'15px', marginTop: tipoMovCaja === 'fondo' ? '20px' : '0'}}>
                             <button className="btn-action" style={{flex:1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem'}} onClick={() => setShowCajaModal(false)}>{t('cancelar') || 'Cancelar'}</button>
                             <button className="btn-primary" style={{flex:2, padding: '16px', background: tipoMovCaja === 'retiro' ? '#ea580c' : (tipoMovCaja === 'fondo' ? '#10b981' : 'var(--accent)'), color: 'white', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: 'pointer', boxShadow: '0 5px 15px rgba(0,0,0,0.2)'}} onClick={registrarMovimientoCaja}><i className="fa-solid fa-bolt"></i> {t('procesar') || 'Procesar'}</button>
@@ -1374,7 +1333,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 .breakdown-section { margin-top: auto; padding-top: 20px; border-top: 1px dashed var(--border-color); font-size: 0.85rem; display: flex; flex-direction: column; gap: 8px; }
                 .breakdown-section div { display: flex; justifyContent: space-between; color: var(--text-muted); }
                 
-                .receipt-row { display: flex; justifyContent: space-between; alignItems: center; margin-bottom: 12px; font-size: 0.95rem; }
+                .receipt-row { display: flex; justify-content: space-between; alignItems: center; margin-bottom: 12px; font-size: 0.95rem; }
                 .r-label { color: rgba(255,255,255,0.7); font-weight: 600; }
                 .r-value { font-family: monospace; font-weight: bold; font-size: 1.1rem; }
                 .r-value.neutral { color: #ffffff; }
