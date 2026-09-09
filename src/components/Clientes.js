@@ -16,6 +16,9 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
 
     const [pacienteEditando, setPacienteEditando] = useState(null);
 
+    // 🚀 NUEVO ESTADO PARA EL WIZARD DEL FORMULARIO
+    const [formStep, setFormStep] = useState(1);
+
     // Estados del Formulario (Datos Generales)
     const [nombres, setNombres] = useState('');
     const [apellidos, setApellidos] = useState('');
@@ -44,11 +47,9 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
     const [nuevaAlertaTipo, setNewAlertaTipo] = useState('');
     const [nuevaAlertaDesc, setNewAlertaDesc] = useState('');
 
-    // 🚀 FIX: Aseguramos que la sucursal se mapee correctamente sin importar mayúsculas/minúsculas
     const branchIdMap = { napoles: 1, obrera: 2, pedregal: 3 };
     const sucursalId = branchIdMap[(branch || '').toLowerCase()] || 1;
 
-    // 🚀 FORMATEADOR ESTRICTO: Quita acentos y fuerza Mayúsculas en tiempo real
     const formatUpperCase = (str) => {
         if (!str) return '';
         return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
@@ -80,6 +81,7 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
         setEmergenciaParentesco(''); setEmergenciaTelefono(''); setIdioma('Español'); setSabeIngles(false);
         setResponsable(''); setAvisoPrivacidad(false); setNotaInterna('');
         setAlertas([]); setNewAlertaTipo(''); setNewAlertaDesc('');
+        setFormStep(1); // 🚀 Reiniciar el wizard al paso 1
     };
 
     const abrirFormulario = (paciente = null) => {
@@ -105,6 +107,7 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
             setAvisoPrivacidad(paciente.aviso_privacidad_aceptado || false); 
             setNotaInterna(paciente.nota_interna || ''); 
             setAlertas(paciente.alertas_clinicas?.filter(a => a.activa) || []);
+            setFormStep(1);
         } else {
             resetForm();
         }
@@ -123,36 +126,34 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
         setAlertas(alertas.filter((_, i) => i !== index));
     };
 
-    // 🚀 LÓGICA DE GUARDADO ESTRICTO Y ANTI-DUPLICADOS
     const guardarExpediente = async () => {
-        if (!nombres || !apellidos || !telefono || !sexo || !fechaNac || !estadoCivil) return alert(t('camposObligatoriosGeneral') || 'Faltan campos obligatorios (Nombres, Apellidos, Tel, Sexo, Fecha Nac, Estado Civil).');
-        if (!avisoPrivacidad) return alert(t('aceptarAviso') || 'Debes aceptar el Aviso de Privacidad.');
+        // 🚀 Validación Inteligente: Regresa al paso correspondiente si falta algo
+        if (!nombres || !apellidos || !telefono || !sexo || !fechaNac || !estadoCivil) {
+            setFormStep(1);
+            return alert(t('camposObligatoriosGeneral') || 'Faltan campos obligatorios en la sección 1 (Nombres, Apellidos, Tel, Sexo, Fecha Nac, Estado Civil).');
+        }
+        if (!avisoPrivacidad) {
+            setFormStep(3);
+            return alert(t('aceptarAviso') || 'Debes aceptar el Aviso de Privacidad en la sección 3.');
+        }
 
         const nombresNorm = nombres.trim();
         const apellidosNorm = apellidos.trim();
         const fullName = `${nombresNorm} ${apellidosNorm}`;
 
-        // 🚀 BLOQUEO ESTRICTO DE DUPLICADOS (Si no estamos editando)
         if (!pacienteEditando) {
-            // 1. Verificamos coincidencia exacta de Nombre + Apellido
             const nameDupe = pacientes.find(p => p.nombres === nombresNorm && p.apellidos === apellidosNorm);
-            if (nameDupe) {
-                return alert(`🚨 ERROR: El paciente "${fullName}" ya existe en el sistema con el expediente ${nameDupe.codigo_expediente || 'S/E'}. No se pueden crear duplicados.`);
-            }
+            if (nameDupe) return alert(`🚨 ERROR: El paciente "${fullName}" ya existe con el expediente ${nameDupe.codigo_expediente || 'S/E'}.`);
 
-            // 2. Verificamos CURP duplicado (Si ingresaron uno)
             if (curp.trim()) {
                 const curpDupe = pacientes.find(p => p.curp === curp.trim());
-                if (curpDupe) {
-                    return alert(`🚨 ERROR: La CURP ingresada ya pertenece al paciente ${curpDupe.nombre} (Exp: ${curpDupe.codigo_expediente || 'S/E'}).`);
-                }
+                if (curpDupe) return alert(`🚨 ERROR: La CURP ingresada ya pertenece al paciente ${curpDupe.nombre} (Exp: ${curpDupe.codigo_expediente || 'S/E'}).`);
             }
 
-            // 3. Verificamos Teléfono duplicado (Este es un aviso suave porque las familias pueden compartir número)
             if (telefono.trim()) {
                 const telDupe = pacientes.find(p => p.telefono === telefono.trim());
                 if (telDupe) {
-                    if (!window.confirm(`⚠️ AVISO: El teléfono ${telefono.trim()} ya está registrado a nombre de ${telDupe.nombre}. ¿Deseas continuar de todos modos? (Puede ser un número familiar compartido)`)) return;
+                    if (!window.confirm(`⚠️ AVISO: El teléfono ${telefono.trim()} ya está registrado a nombre de ${telDupe.nombre}. ¿Deseas continuar de todos modos?`)) return;
                 }
             }
         }
@@ -185,7 +186,6 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
             
             currentPacienteId = data[0].id;
             
-            // Generar Código Expediente Nuevo asegurando que extraiga la inicial correcta
             const yearMonth = new Date().getFullYear().toString().slice(-2) + (new Date().getMonth() + 1).toString().padStart(2, '0');
             const branchLetter = (branch || 'Napoles').charAt(0).toUpperCase();
             generatedExpCode = `HK-${branchLetter}-${yearMonth}-${currentPacienteId.toString().padStart(4, '0')}`;
@@ -225,7 +225,6 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
 
     const pacientesFiltrados = pacientes.filter(p => {
         const isLegacy = p.codigo_expediente && p.codigo_expediente.includes('LEGACY');
-        
         if (!showLegacyClients && isLegacy) return false;
 
         const busqueda = searchTerm.toLowerCase().trim();
@@ -242,6 +241,11 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
 
         return true;
     });
+
+    const getNombreSucursal = (id) => {
+        const suc = sucursalesDB.find(s => s.id === id);
+        return suc ? suc.nombre : 'S/A';
+    };
 
     return (
         <div className="view-section active" style={{flexDirection: 'column', gap: '25px', overflowY: 'auto', paddingRight: '5px'}}>
@@ -270,7 +274,7 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
                                 {showLegacyClients ? (t('ocultarLegacy') || 'Ocultar Legacy') : (t('verLegacy') || 'Ver Legacy')}
                             </button>
                         </div>
-                        <button className="btn-primary" onClick={() => abrirFormulario()} style={{padding: '14px 25px', fontSize: '1rem', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.25)', transition: 'all 0.3s'}}>
+                        <button className="btn-primary" onClick={() => abrirFormulario()} style={{padding: '14px 25px', fontSize: '1rem', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(211, 47, 47, 0.3)', transition: 'all 0.3s'}}>
                             <i className="fa-solid fa-user-plus" style={{marginRight: '8px'}}></i> {t('nuevoPaciente') || 'Nuevo Paciente'}
                         </button>
                     </div>
@@ -299,6 +303,8 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
                                     <th>{t('nombreCompleto') || 'Nombre Completo'}</th>
                                     <th>{t('telefono') || 'Teléfono'}</th>
                                     <th>{t('sexo') || 'Sexo'} / {t('edad') || 'Edad'}</th>
+                                    {/* 🚀 NUEVA COLUMNA DE SUCURSAL */}
+                                    <th style={{textAlign: 'center'}}><i className="fa-solid fa-location-dot" style={{marginRight: '5px'}}></i> {t('sucursal') || 'Sucursal'}</th>
                                     <th><i className="fa-solid fa-triangle-exclamation" style={{color: 'var(--primary-red)', marginRight: '5px'}}></i> {t('alertasClinicas') || 'Alertas'} / {t('estado') || 'Estatus'}</th>
                                     <th style={{textAlign: 'center'}}>{t('acciones') || 'Acciones'}</th>
                                 </tr>
@@ -339,6 +345,14 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
                                             </td>
                                             <td style={{color: 'var(--text-main)'}}>{p.telefono || t('sinTelefono')}</td>
                                             <td><span style={{color: 'var(--text-main)'}}>{p.sexo || '-'}</span> <br/><span style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{edad} {t('anos') || 'años'}</span></td>
+                                            
+                                            {/* 🚀 CELDA SUCURSAL */}
+                                            <td style={{textAlign: 'center'}}>
+                                                <span style={{fontSize: '0.75rem', background: 'var(--bg-main)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold', display: 'inline-block'}}>
+                                                    {getNombreSucursal(p.sucursal_registro_id)}
+                                                </span>
+                                            </td>
+
                                             <td>
                                                 <div style={{display: 'flex', gap: '5px', flexWrap: 'wrap'}}>
                                                     {abandonoTratamiento && (
@@ -367,173 +381,274 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
                                         </tr>
                                     );
                                 })}
-                                {pacientesFiltrados.length === 0 && <tr><td colSpan="6" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-folder-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('noExpedientes') || 'No se encontraron expedientes.'}</td></tr>}
+                                {pacientesFiltrados.length === 0 && <tr><td colSpan="7" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-folder-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('noExpedientes') || 'No se encontraron expedientes.'}</td></tr>}
                             </tbody>
                         </table>
                     </div>
                 </>
             )}
 
+            {/* 🚀 NUEVO WIZARD DE FORMULARIO (ESTÉTICA PREMIUM MÉDICA-ASIÁTICA) */}
             {vista === 'formulario' && (
-                <div className="animate-fade-in" style={{display: 'flex', gap: '25px', alignItems: 'flex-start'}}>
-                    
-                    {/* COLUMNA IZQUIERDA: DATOS ADMINISTRATIVOS */}
-                    <div className="panel" style={{flex: 2, background: 'var(--bg-panel)', borderRadius: '16px', padding: '35px', boxShadow: 'var(--shadow-sm)'}}>
-                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px'}}>
-                            <h2 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.5rem'}}><i className="fa-solid fa-id-card-clip" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {pacienteEditando ? (t('editarExpediente') || 'Editar Expediente') : (t('altaExpedienteClinico') || 'Alta de Expediente Clínico')}</h2>
-                            {pacienteEditando && <span style={{background: 'var(--bg-main)', padding: '6px 15px', border: '1px solid var(--border-color)', borderRadius: '20px', fontFamily: 'monospace', color: 'var(--accent)', fontWeight: 'bold'}}>{t('expAbrev') || 'Exp:'} {pacientes.find(p => p.id === pacienteEditando)?.codigo_expediente || 'S/E'}</span>}
+                <div className="wizard-container animate-slide-up">
+                    <div className="wizard-header">
+                        <div>
+                            <h2 style={{margin: 0, color: 'var(--primary-red)', fontSize: '1.8rem', display: 'flex', alignItems: 'center', gap: '15px'}}>
+                                <i className="fa-solid fa-address-card"></i> 
+                                {pacienteEditando ? 'Edición de Expediente' : 'Alta de Nuevo Paciente'}
+                            </h2>
+                            <p style={{margin: '5px 0 0 0', color: 'var(--text-muted)', fontSize: '0.9rem'}}>Completa la información en cada sección para registrar al paciente en el sistema Freedom HK.</p>
                         </div>
-
-                        <h4 style={{color: 'var(--accent)', marginBottom: '20px', fontSize: '1.1rem'}}><i className="fa-solid fa-address-book" style={{marginRight: '8px'}}></i> {t('datosGeneralesNum') || '1. Datos Generales'}</h4>
-                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px'}}>
-                            
-                            {/* 🚀 CAMPOS QUE SE FORMATEAN A MAYÚSCULAS EN TIEMPO REAL */}
-                            <div><label className="form-label">{t('nombres') || 'Nombres'} *</label><input type="text" value={nombres} onChange={e => setNombres(formatUpperCase(e.target.value))} className="form-input" placeholder="Ej. JOSE ADRIAN" /></div>
-                            <div><label className="form-label">{t('apellidos') || 'Apellidos'} *</label><input type="text" value={apellidos} onChange={e => setApellidos(formatUpperCase(e.target.value))} className="form-input" placeholder="Ej. ESTRADA URIBE" /></div>
-                            
-                            <div><label className="form-label">{t('telefono')} *</label><input type="text" value={telefono} onChange={e => setTelefono(e.target.value)} className="form-input" /></div>
-                            <div><label className="form-label">{t('fechaNacimiento')} *</label><input type="date" value={fechaNac} onChange={e => setFechaNac(e.target.value)} className="form-input" /></div>
-                            
-                            <div>
-                                <label className="form-label">{t('sexo')} *</label>
-                                <select value={sexo} onChange={e => setSexo(e.target.value)} className="form-input">
-                                    <option value="">-- {t('seleccionar') || 'Seleccionar'} --</option>
-                                    <option value="Femenino">{t('femenino') || 'Femenino'}</option>
-                                    <option value="Masculino">{t('masculino') || 'Masculino'}</option>
-                                    <option value="Otro">{t('otro') || 'Otro'}</option>
-                                </select>
+                        {pacienteEditando && (
+                            <div className="wizard-badge">
+                                <i className="fa-solid fa-folder-open"></i> EXP: {pacientes.find(p => p.id === pacienteEditando)?.codigo_expediente || 'S/E'}
                             </div>
-
-                            <div>
-                                <label className="form-label">{t('estadoCivil') || 'Estado Civil'} *</label>
-                                <select value={estadoCivil} onChange={e => setEstadoCivil(e.target.value)} className="form-input">
-                                    <option value="">-- {t('seleccionar') || 'Seleccionar'} --</option>
-                                    <option value="Soltero">{t('soltero') || 'Soltero(a)'}</option>
-                                    <option value="Casado">{t('casado') || 'Casado(a)'}</option>
-                                    <option value="Divorciado">{t('divorciado') || 'Divorciado(a)'}</option>
-                                    <option value="Viudo">{t('viudo') || 'Viudo(a)'}</option>
-                                    <option value="Unión Libre">{t('unionLibre') || 'Unión Libre'}</option>
-                                    <option value="Otro">{t('otro') || 'Otro'}</option>
-                                </select>
-                            </div>
-                            <div><label className="form-label">{t('ocupacion') || 'Ocupación'}</label><input type="text" value={ocupacion} onChange={e => setOcupacion(formatUpperCase(e.target.value))} className="form-input" placeholder={t('ejOcupacion') || 'Ej. ESTUDIANTE, DOCENTE, ING...'} /></div>
-
-                            <div><label className="form-label">{t('curp')}</label><input type="text" value={curp} onChange={e => setCurp(formatUpperCase(e.target.value))} className="form-input" maxLength="18" placeholder="18 Caracteres" /></div>
-                            <div><label className="form-label">{t('sinCurp') || 'Motivo Sin CURP'}</label><input type="text" value={motivoSinCurp} onChange={e => setMotivoSinCurp(formatUpperCase(e.target.value))} className="form-input" placeholder="Ej. EXTRANJERO, NO LO RECUERDA..." disabled={curp.length > 0} style={{opacity: curp.length > 0 ? 0.5 : 1}} /></div>
-                            
-                            {/* Correo se mantiene en minúsculas */}
-                            <div><label className="form-label">{t('correo')}</label><input type="email" value={correo} onChange={e => setCorreo(e.target.value.toLowerCase())} className="form-input" /></div>
-                            <div><label className="form-label">{t('idioma')}</label><input type="text" value={idioma} onChange={e => setIdioma(formatUpperCase(e.target.value))} className="form-input" /></div>
-                            
-                            <div style={{gridColumn: '1 / -1'}}><label className="form-label">{t('domicilio')}</label><input type="text" value={domicilio} onChange={e => setDomicilio(formatUpperCase(e.target.value))} className="form-input" placeholder="CALLE, NÚMERO, COLONIA, ALCALDÍA/MUNICIPIO, CP..." /></div>
-                        </div>
-
-                        {/* SWITCH HABLA INGLÉS */}
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '15px', cursor: 'pointer', background: sabeIngles ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-main)', padding: '15px 20px', borderRadius: '12px', border: sabeIngles ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid var(--border-color)', marginBottom: '40px', transition: 'all 0.3s ease' }}>
-                            <input type="checkbox" checked={sabeIngles} onChange={e => setSabeIngles(e.target.checked)} style={{width: '24px', height: '24px', accentColor: '#3b82f6'}} />
-                            <span style={{color: sabeIngles ? '#3b82f6' : 'var(--text-main)', fontWeight: 'bold', fontSize: '1rem'}}><i className="fa-solid fa-language"></i> {t('pacienteHablaIngles') || 'Paciente habla Inglés (Pase directo con Médico)'}</span>
-                        </label>
-
-                        <h4 style={{color: 'var(--accent)', marginBottom: '20px', fontSize: '1.1rem'}}><i className="fa-solid fa-kit-medical" style={{marginRight: '8px'}}></i> {t('contactoEmergenciaNum') || '2. Contacto de Emergencia'}</h4>
-                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '40px'}}>
-                            <div><label className="form-label">{t('nombre') || 'Nombre'}</label><input type="text" value={emergenciaNombre} onChange={e => setEmergenciaNombre(formatUpperCase(e.target.value))} className="form-input" /></div>
-                            <div><label className="form-label">{t('parentesco')}</label><input type="text" value={emergenciaParentesco} onChange={e => setEmergenciaParentesco(formatUpperCase(e.target.value))} className="form-input" /></div>
-                            <div><label className="form-label">{t('telefono')}</label><input type="text" value={emergenciaTelefono} onChange={e => setEmergenciaTelefono(e.target.value)} className="form-input" /></div>
-                        </div>
-
-                        <div><label className="form-label">{t('responsableLegal')}</label><input type="text" value={responsable} onChange={e => setResponsable(formatUpperCase(e.target.value))} className="form-input" placeholder="Llenar solo si es menor de edad o persona que no puede consentir" /></div>
-                    
-                        {/* CASILLA DINÁMICA DE AVISO DE PRIVACIDAD */}
-                        <label style={{
-                            display: 'flex', alignItems: 'center', gap: '15px', cursor: 'pointer', 
-                            background: avisoPrivacidad ? 'rgba(22, 163, 74, 0.05)' : 'rgba(220, 38, 38, 0.05)', 
-                            padding: '20px', borderRadius: '12px', 
-                            border: avisoPrivacidad ? '1px solid var(--success)' : '1px dashed var(--primary-red)', 
-                            marginTop: '35px', transition: 'all 0.3s ease'
-                        }}>
-                            <input type="checkbox" checked={avisoPrivacidad} onChange={e => setAvisoPrivacidad(e.target.checked)} style={{width: '24px', height: '24px', accentColor: 'var(--success)'}} />
-                            <span style={{color: avisoPrivacidad ? 'var(--success)' : 'var(--primary-red)', fontWeight: 'bold', fontSize: '1.05rem', transition: 'color 0.3s ease'}}>
-                                {t('avisoPrivacidad')} * {avisoPrivacidad && <i className="fa-solid fa-check" style={{marginLeft: '10px'}}></i>}
-                            </span>
-                        </label>
+                        )}
                     </div>
 
-                    {/* COLUMNA DERECHA: ALERTAS, NOTA INTERNA Y GUARDADO */}
-                    <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '25px'}}>
-                        
-                        <div className="panel" style={{background: 'rgba(220, 38, 38, 0.03)', borderRadius: '16px', padding: '30px', border: '1px solid rgba(220, 38, 38, 0.15)', boxShadow: 'var(--shadow-sm)'}}>
-                            <h3 style={{color: 'var(--primary-red)', margin: '0 0 10px 0', fontSize: '1.2rem'}}><i className="fa-solid fa-triangle-exclamation"></i> {t('alertasClinicas')}</h3>
-                            <p style={{fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '25px'}}>{t('descAlertasClinicas') || 'Estas alertas generarán un bloqueo visual rojo en el historial del paciente.'}</p>
+                    <div className="wizard-body">
+                        {/* 🚀 SIDEBAR DE NAVEGACIÓN DEL WIZARD */}
+                        <div className="wizard-sidebar">
+                            <button className={`wizard-step ${formStep === 1 ? 'active' : (formStep > 1 ? 'completed' : '')}`} onClick={() => setFormStep(1)}>
+                                <div className="step-icon"><i className="fa-solid fa-user"></i></div>
+                                <div className="step-text">
+                                    <span className="step-title">1. Datos Generales</span>
+                                    <span className="step-desc">Identidad y Contacto</span>
+                                </div>
+                                {formStep > 1 && <i className="fa-solid fa-check step-check"></i>}
+                            </button>
+
+                            <button className={`wizard-step ${formStep === 2 ? 'active' : (formStep > 2 ? 'completed' : '')}`} onClick={() => setFormStep(2)}>
+                                <div className="step-icon"><i className="fa-solid fa-heart-pulse"></i></div>
+                                <div className="step-text">
+                                    <span className="step-title">2. Perfil Clínico</span>
+                                    <span className="step-desc">Alertas y Emergencias</span>
+                                </div>
+                                {formStep > 2 && <i className="fa-solid fa-check step-check"></i>}
+                            </button>
+
+                            <button className={`wizard-step ${formStep === 3 ? 'active' : ''}`} onClick={() => setFormStep(3)}>
+                                <div className="step-icon"><i className="fa-solid fa-shield-halved"></i></div>
+                                <div className="step-text">
+                                    <span className="step-title">3. Privacidad</span>
+                                    <span className="step-desc">Avisos y Notas Internas</span>
+                                </div>
+                            </button>
+                        </div>
+
+                        {/* 🚀 ÁREA DE CONTENIDO DEL FORMULARIO */}
+                        <div className="wizard-content">
                             
-                            <div style={{background: 'var(--bg-main)', padding: '20px', borderRadius: '12px', marginBottom: '20px', border: '1px solid var(--border-color)'}}>
-                                <select value={nuevaAlertaTipo} onChange={e => setNewAlertaTipo(e.target.value)} className="form-input" style={{marginBottom: '15px'}}>
-                                    <option value="">{t('seleccionarAlerta') || '-- Seleccionar Alerta --'}</option>
-                                    <option value="Alergia">{t('alergia') || 'Alergia'}</option>
-                                    <option value="Marcapasos">{t('marcapasos') || 'Marcapasos'}</option>
-                                    <option value="Anticoagulantes">{t('anticoagulantes') || 'Anticoagulantes'}</option>
-                                    <option value="Embarazo">{t('embarazo') || 'Embarazo'}</option>
-                                    <option value="Enfermedad Transmisible">{t('enfermedadTransmisible') || 'Enfermedad Transmisible'}</option>
-                                    <option value="Riesgo Urgencia">{t('riesgoUrgencia') || 'Riesgo de Urgencia'}</option>
-                                </select>
-                                <textarea 
-                                    value={nuevaAlertaDesc} onChange={e => setNewAlertaDesc(e.target.value)} 
-                                    className="form-input" rows="3" placeholder={t('especificarDetalleAlerta') || 'Especificar detalle de la alerta...'}
-                                    style={{marginBottom: '15px', resize: 'none'}}
-                                ></textarea>
-                                <button className="btn-action" onClick={agregarAlerta} style={{width: '100%', background: 'var(--primary-red)', color: 'white', border: 'none', padding: '12px', fontWeight: 'bold', borderRadius: '8px'}}><i className="fa-solid fa-plus"></i> {t('anadirAlerta') || 'Añadir Alerta'}</button>
-                            </div>
-
-                            {/* LISTA DE ALERTAS VISUALES */}
-                            <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
-                                {alertas.map((a, i) => (
-                                    <div key={i} style={{background: 'var(--bg-panel)', padding: '15px', borderRadius: '10px', borderLeft: `4px solid ${a.nivel_gravedad === 'alta' ? 'var(--primary-red)' : '#ea580c'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 5px rgba(0,0,0,0.05)'}}>
+                            {/* PASO 1: DATOS GENERALES */}
+                            {formStep === 1 && (
+                                <div className="step-pane animate-fade-in">
+                                    <h3 className="pane-title"><i className="fa-solid fa-address-book" style={{color: 'var(--accent)', marginRight: '10px'}}></i> Información Personal</h3>
+                                    
+                                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '25px', marginBottom: '25px'}}>
+                                        <div><label className="form-label">{t('nombres')} *</label><input type="text" value={nombres} onChange={e => setNombres(formatUpperCase(e.target.value))} className="form-input" placeholder="Ej. JOSE ADRIAN" autoFocus/></div>
+                                        <div><label className="form-label">{t('apellidos')} *</label><input type="text" value={apellidos} onChange={e => setApellidos(formatUpperCase(e.target.value))} className="form-input" placeholder="Ej. ESTRADA URIBE" /></div>
+                                        
+                                        <div><label className="form-label">{t('telefono')} *</label><input type="text" value={telefono} onChange={e => setTelefono(e.target.value)} className="form-input" placeholder="10 dígitos" /></div>
+                                        <div><label className="form-label">{t('fechaNacimiento')} *</label><input type="date" value={fechaNac} onChange={e => setFechaNac(e.target.value)} className="form-input" /></div>
+                                        
                                         <div>
-                                            <strong style={{fontSize: '0.9rem', color: 'var(--text-main)'}}>{t(a.tipo_alerta.replace(/\s+/g, '').toLowerCase()) || a.tipo_alerta}</strong>
-                                            <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px'}}>{a.descripcion}</div>
+                                            <label className="form-label">{t('sexo')} *</label>
+                                            <select value={sexo} onChange={e => setSexo(e.target.value)} className="form-input">
+                                                <option value="">-- {t('seleccionar')} --</option>
+                                                <option value="Femenino">{t('femenino')}</option>
+                                                <option value="Masculino">{t('masculino')}</option>
+                                                <option value="Otro">{t('otro')}</option>
+                                            </select>
                                         </div>
-                                        <button onClick={() => quitarAlertaTemporal(i)} style={{background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'}} onMouseEnter={e => {e.currentTarget.style.color = 'var(--primary-red)'; e.currentTarget.style.borderColor = 'var(--primary-red)';}} onMouseLeave={e => {e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-color)';}}>
-                                            <i className="fa-solid fa-xmark"></i>
-                                        </button>
+                                        <div>
+                                            <label className="form-label">{t('estadoCivil')} *</label>
+                                            <select value={estadoCivil} onChange={e => setEstadoCivil(e.target.value)} className="form-input">
+                                                <option value="">-- {t('seleccionar')} --</option>
+                                                <option value="Soltero">{t('soltero')}</option>
+                                                <option value="Casado">{t('casado')}</option>
+                                                <option value="Divorciado">{t('divorciado')}</option>
+                                                <option value="Viudo">{t('viudo')}</option>
+                                                <option value="Unión Libre">{t('unionLibre')}</option>
+                                                <option value="Otro">{t('otro')}</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div><label className="form-label">{t('curp')}</label><input type="text" value={curp} onChange={e => setCurp(formatUpperCase(e.target.value))} className="form-input" maxLength="18" placeholder="18 Caracteres alfanuméricos" /></div>
+                                        <div><label className="form-label">{t('sinCurp')} (Motivo)</label><input type="text" value={motivoSinCurp} onChange={e => setMotivoSinCurp(formatUpperCase(e.target.value))} className="form-input" placeholder="Ej. EXTRANJERO, NO LO RECUERDA..." disabled={curp.length > 0} style={{opacity: curp.length > 0 ? 0.5 : 1}} /></div>
+                                        
+                                        <div><label className="form-label">{t('ocupacion')}</label><input type="text" value={ocupacion} onChange={e => setOcupacion(formatUpperCase(e.target.value))} className="form-input" placeholder="Ej. ESTUDIANTE, DOCENTE..." /></div>
+                                        <div><label className="form-label">{t('correo')}</label><input type="email" value={correo} onChange={e => setCorreo(e.target.value.toLowerCase())} className="form-input" placeholder="correo@ejemplo.com" /></div>
                                     </div>
-                                ))}
-                                {alertas.length === 0 && <div style={{textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic'}}>{t('sinDatos') || 'No hay alertas registradas.'}</div>}
-                            </div>
-                        </div>
+                                    <div style={{width: '100%'}}>
+                                        <label className="form-label">{t('domicilio')}</label>
+                                        <input type="text" value={domicilio} onChange={e => setDomicilio(formatUpperCase(e.target.value))} className="form-input" placeholder="Calle, Número, Colonia, Alcaldía/Municipio, CP..." />
+                                    </div>
+                                </div>
+                            )}
 
-                        {/* POST-IT NOTA INTERNA STAFF */}
-                        <div style={{ background: '#fef08a', padding: '25px', borderRadius: '12px', borderLeft: '6px solid #eab308', boxShadow: '2px 4px 10px rgba(0,0,0,0.1)' }}>
-                            <label style={{ fontWeight: '900', display: 'block', marginBottom: '10px', color: '#854d0e', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                <i className="fa-solid fa-note-sticky"></i> {t('notaInterna') || 'Nota Interna (Staff)'}
-                            </label>
-                            <p style={{fontSize: '0.8rem', color: '#a16207', marginBottom: '15px'}}>{t('notaInternaDesc') || 'Comentarios privados. El paciente no verá esto.'}</p>
-                            <textarea 
-                                value={notaInterna} 
-                                onChange={e => setNotaInterna(e.target.value)} 
-                                rows="4" 
-                                style={{ width: '100%', background: 'rgba(255, 255, 255, 0.4)', border: '1px dashed #ca8a04', outline: 'none', color: '#713f12', padding: '15px', borderRadius: '8px', resize: 'vertical', fontSize: '0.95rem' }} 
-                                placeholder={t('ejNotaInterna') || 'Ej. Cliente conflictivo, prefiere pasar con la Dra. Ana...'}
-                            />
-                        </div>
+                            {/* PASO 2: PERFIL CLÍNICO Y EMERGENCIAS */}
+                            {formStep === 2 && (
+                                <div className="step-pane animate-fade-in">
+                                    <h3 className="pane-title"><i className="fa-solid fa-truck-medical" style={{color: 'var(--accent)', marginRight: '10px'}}></i> Contacto de Emergencia y Lenguaje</h3>
+                                    
+                                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '25px'}}>
+                                        <div><label className="form-label">{t('nombre')}</label><input type="text" value={emergenciaNombre} onChange={e => setEmergenciaNombre(formatUpperCase(e.target.value))} className="form-input" placeholder="Nombre completo" /></div>
+                                        <div><label className="form-label">{t('parentesco')}</label><input type="text" value={emergenciaParentesco} onChange={e => setEmergenciaParentesco(formatUpperCase(e.target.value))} className="form-input" placeholder="Ej. MADRE, ESPOSO..." /></div>
+                                        <div><label className="form-label">{t('telefono')}</label><input type="text" value={emergenciaTelefono} onChange={e => setEmergenciaTelefono(e.target.value)} className="form-input" placeholder="10 dígitos" /></div>
+                                    </div>
+                                    
+                                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '35px'}}>
+                                        <div><label className="form-label">{t('responsableLegal')}</label><input type="text" value={responsable} onChange={e => setResponsable(formatUpperCase(e.target.value))} className="form-input" placeholder="Llenar solo si es menor de edad o discapacitado" /></div>
+                                        <div style={{display: 'flex', alignItems: 'flex-end', gap: '15px'}}>
+                                            <div style={{flex: 1}}><label className="form-label">{t('idioma')}</label><input type="text" value={idioma} onChange={e => setIdioma(formatUpperCase(e.target.value))} className="form-input" /></div>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: sabeIngles ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-main)', padding: '12px 15px', borderRadius: '10px', border: sabeIngles ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid var(--border-color)', height: '48px', transition: 'all 0.3s ease' }}>
+                                                <input type="checkbox" checked={sabeIngles} onChange={e => setSabeIngles(e.target.checked)} style={{width: '20px', height: '20px', accentColor: '#3b82f6'}} />
+                                                <span style={{color: sabeIngles ? '#3b82f6' : 'var(--text-main)', fontWeight: 'bold', fontSize: '0.9rem'}}><i className="fa-solid fa-language"></i> {t('pacienteHablaIngles')}</span>
+                                            </label>
+                                        </div>
+                                    </div>
 
-                        <div className="panel" style={{background: 'var(--bg-panel)', borderRadius: '16px', padding: '30px', boxShadow: 'var(--shadow-sm)'}}>
-                            <button onClick={guardarExpediente} className="btn-primary" style={{width: '100%', padding: '16px', border: 'none', borderRadius: '10px', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', marginBottom: '15px', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}}>
-                                <i className="fa-solid fa-floppy-disk" style={{marginRight: '8px'}}></i> {t('guardarExpediente') || 'Guardar Expediente'}
+                                    <h3 className="pane-title" style={{color: 'var(--primary-red)', borderTop: '1px dashed var(--border-color)', paddingTop: '25px'}}><i className="fa-solid fa-triangle-exclamation"></i> Alertas Clínicas Restrictivas</h3>
+                                    <p style={{fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '20px'}}>Agrega alertas si el paciente tiene condiciones que impidan o modifiquen el tratamiento (Alergias, Marcapasos, Embarazo).</p>
+                                    
+                                    <div style={{background: 'var(--bg-main)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '20px', display: 'flex', gap: '15px'}}>
+                                        <select value={nuevaAlertaTipo} onChange={e => setNewAlertaTipo(e.target.value)} className="form-input" style={{flex: 1}}>
+                                            <option value="">-- Seleccionar Alerta --</option>
+                                            <option value="Alergia">Alergia</option>
+                                            <option value="Marcapasos">Marcapasos</option>
+                                            <option value="Anticoagulantes">Anticoagulantes</option>
+                                            <option value="Embarazo">Embarazo</option>
+                                            <option value="Enfermedad Transmisible">Enfermedad Transmisible</option>
+                                            <option value="Riesgo Urgencia">Riesgo de Urgencia</option>
+                                        </select>
+                                        <input type="text" value={nuevaAlertaDesc} onChange={e => setNewAlertaDesc(e.target.value)} className="form-input" placeholder="Especificar detalle..." style={{flex: 2}} />
+                                        <button className="btn-primary" onClick={agregarAlerta} style={{padding: '0 20px', borderRadius: '8px', border: 'none', background: 'var(--primary-red)', color: 'white', fontWeight: 'bold'}}><i className="fa-solid fa-plus"></i></button>
+                                    </div>
+
+                                    <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
+                                        {alertas.map((a, i) => (
+                                            <div key={i} style={{background: 'var(--bg-panel)', padding: '15px', borderRadius: '10px', borderLeft: `4px solid ${a.nivel_gravedad === 'alta' ? 'var(--primary-red)' : '#ea580c'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 5px rgba(0,0,0,0.05)'}}>
+                                                <div>
+                                                    <strong style={{fontSize: '0.9rem', color: 'var(--text-main)'}}>{a.tipo_alerta}</strong>
+                                                    <div style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px'}}>{a.descripcion}</div>
+                                                </div>
+                                                <button onClick={() => quitarAlertaTemporal(i)} style={{background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'}} onMouseEnter={e => {e.currentTarget.style.color = 'var(--primary-red)'; e.currentTarget.style.borderColor = 'var(--primary-red)';}} onMouseLeave={e => {e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-color)';}}>
+                                                    <i className="fa-solid fa-xmark"></i>
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {alertas.length === 0 && <div style={{textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic', padding: '10px'}}>Sin alertas registradas.</div>}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* PASO 3: PRIVACIDAD Y NOTAS */}
+                            {formStep === 3 && (
+                                <div className="step-pane animate-fade-in">
+                                    <h3 className="pane-title"><i className="fa-solid fa-shield-halved" style={{color: 'var(--accent)', marginRight: '10px'}}></i> Legal y Operativo</h3>
+                                    
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '15px', cursor: 'pointer', background: avisoPrivacidad ? 'rgba(22, 163, 74, 0.05)' : 'rgba(220, 38, 38, 0.05)', padding: '20px', borderRadius: '12px', border: avisoPrivacidad ? '1px solid var(--success)' : '1px dashed var(--primary-red)', marginBottom: '35px', transition: 'all 0.3s ease' }}>
+                                        <input type="checkbox" checked={avisoPrivacidad} onChange={e => setAvisoPrivacidad(e.target.checked)} style={{width: '24px', height: '24px', accentColor: 'var(--success)'}} />
+                                        <div style={{display: 'flex', flexDirection: 'column'}}>
+                                            <span style={{color: avisoPrivacidad ? 'var(--success)' : 'var(--primary-red)', fontWeight: 'bold', fontSize: '1.05rem', transition: 'color 0.3s ease'}}>
+                                                {t('avisoPrivacidad')} * {avisoPrivacidad && <i className="fa-solid fa-check" style={{marginLeft: '10px'}}></i>}
+                                            </span>
+                                            <span style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px'}}>Es obligatorio que el paciente haya leído y aceptado el aviso de privacidad antes de guardar el expediente.</span>
+                                        </div>
+                                    </label>
+
+                                    <div style={{ background: '#fef08a', padding: '25px', borderRadius: '12px', borderLeft: '6px solid #eab308', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' }}>
+                                        <label style={{ fontWeight: '900', display: 'block', marginBottom: '10px', color: '#854d0e', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                            <i className="fa-solid fa-note-sticky"></i> {t('notaInterna') || 'Nota Interna (Staff)'}
+                                        </label>
+                                        <p style={{fontSize: '0.8rem', color: '#a16207', marginBottom: '15px'}}>{t('notaInternaDesc') || 'Comentarios privados para uso exclusivo de recepción y médicos. El paciente no verá esto.'}</p>
+                                        <textarea 
+                                            value={notaInterna} 
+                                            onChange={e => setNotaInterna(e.target.value)} 
+                                            rows="5" 
+                                            style={{ width: '100%', background: 'rgba(255, 255, 255, 0.5)', border: '1px dashed #ca8a04', outline: 'none', color: '#713f12', padding: '15px', borderRadius: '8px', resize: 'vertical', fontSize: '0.95rem' }} 
+                                            placeholder={t('ejNotaInterna') || 'Ej. Cliente conflictivo, prefiere pasar con la Dra. Ana...'}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
+                    </div>
+                    
+                    {/* 🚀 FOOTER DEL WIZARD (CONTROLES) */}
+                    <div className="wizard-footer">
+                        <button className="btn-action" onClick={() => setVista('directorio')} style={{padding: '14px 25px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 'bold'}}>
+                            {t('cancelar') || 'Cancelar y Salir'}
+                        </button>
+                        
+                        <div style={{display: 'flex', gap: '15px'}}>
+                            <button 
+                                className="btn-action" 
+                                onClick={() => setFormStep(prev => prev - 1)} 
+                                disabled={formStep === 1}
+                                style={{padding: '14px 25px', background: 'transparent', color: formStep === 1 ? 'transparent' : 'var(--text-main)', border: 'none', fontWeight: 'bold', cursor: formStep === 1 ? 'default' : 'pointer'}}
+                            >
+                                <i className="fa-solid fa-arrow-left"></i> Atrás
                             </button>
-                            <button onClick={() => setVista('directorio')} className="btn-action" style={{width: '100%', padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 'bold'}}>
-                                {t('cancelar') || 'Cancelar'}
-                            </button>
+                            
+                            {formStep < 3 ? (
+                                <button className="btn-primary" onClick={() => setFormStep(prev => prev + 1)} style={{padding: '14px 30px', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}}>
+                                    Siguiente Paso <i className="fa-solid fa-arrow-right" style={{marginLeft: '8px'}}></i>
+                                </button>
+                            ) : (
+                                <button className="btn-primary" onClick={guardarExpediente} style={{padding: '14px 35px', background: 'var(--success)', border: 'none', borderRadius: '10px', fontWeight: '900', cursor: 'pointer', boxShadow: '0 4px 15px rgba(22, 163, 74, 0.4)'}}>
+                                    <i className="fa-solid fa-floppy-disk" style={{marginRight: '8px'}}></i> Finalizar y Guardar
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
             )}
 
+            {/* 🚀 ESTILOS PREMIUM PARA EL WIZARD */}
             <style jsx>{`
                 .form-label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
                 .form-input { width: 100%; padding: 14px; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 10px; font-size: 1rem; transition: all 0.3s ease; }
                 .form-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15); }
                 .form-input:disabled { opacity: 0.6; cursor: not-allowed; }
+                
                 .animate-slide-up-row { opacity: 0; animation: slideUpRow 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-                @keyframes slideUpRow { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                .animate-slide-up { opacity: 0; animation: slideUpRow 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+                .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+                
+                @keyframes slideUpRow { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+                /* 🚀 CSS DEL WIZARD (MÉDICO-ASIÁTICO) */
+                .wizard-container { display: flex; flex-direction: column; background: var(--bg-panel); border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); border: 1px solid var(--border-color); overflow: hidden; min-height: 75vh; }
+                .wizard-header { padding: 30px; background: var(--bg-main); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; alignItems: center; }
+                .wizard-badge { background: rgba(2, 136, 209, 0.1); color: #0288d1; padding: 8px 16px; border-radius: 20px; font-family: monospace; font-weight: bold; border: 1px solid rgba(2, 136, 209, 0.3); font-size: 1.1rem; }
+                
+                .wizard-body { display: flex; flex: 1; overflow: hidden; }
+                
+                .wizard-sidebar { width: 280px; background: var(--bg-main); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 20px 0; }
+                .wizard-step { display: flex; align-items: center; gap: 15px; padding: 20px 25px; background: transparent; border: none; width: 100%; text-align: left; cursor: pointer; transition: all 0.3s ease; position: relative; }
+                .wizard-step::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: transparent; transition: 0.3s; }
+                .wizard-step:hover { background: rgba(211, 47, 47, 0.03); }
+                .wizard-step.active { background: var(--bg-panel); }
+                .wizard-step.active::before { background: var(--primary-red); }
+                
+                .step-icon { width: 40px; height: 40px; border-radius: 50%; background: var(--bg-panel); border: 2px solid var(--border-color); color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; transition: 0.3s; }
+                .wizard-step.active .step-icon { background: rgba(211, 47, 47, 0.1); border-color: var(--primary-red); color: var(--primary-red); }
+                .wizard-step.completed .step-icon { background: var(--success); border-color: var(--success); color: white; }
+                
+                .step-text { display: flex; flex-direction: column; flex: 1; }
+                .step-title { font-weight: bold; color: var(--text-muted); font-size: 0.95rem; transition: 0.3s; }
+                .wizard-step.active .step-title, .wizard-step.completed .step-title { color: var(--text-main); }
+                .step-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 3px; }
+                .step-check { color: var(--success); font-size: 1.2rem; }
+
+                .wizard-content { flex: 1; padding: 40px; overflow-y: auto; background: var(--bg-panel); }
+                .step-pane { max-width: 800px; margin: 0 auto; }
+                .pane-title { color: var(--text-main); font-size: 1.3rem; margin: 0 0 25px 0; padding-bottom: 15px; border-bottom: 1px solid var(--border-color); }
+                
+                .wizard-footer { padding: 20px 40px; background: var(--bg-main); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
             `}</style>
         </div>
     );

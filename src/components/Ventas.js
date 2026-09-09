@@ -7,13 +7,30 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const { t } = useLanguage();
 
     const [barcode, setBarcode] = useState('');
-    const [cart, setCart] = useState([]);
+    // 🚀 INICIALIZACIÓN DEL CARRITO DESDE LOCALSTORAGE SI EXISTE
+    const [cart, setCart] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const savedCart = localStorage.getItem('hk_saved_cart');
+            return savedCart ? JSON.parse(savedCart) : [];
+        }
+        return [];
+    });
+    
+    // 🚀 INICIALIZACIÓN DEL PACIENTE Y NOTAS DESDE LOCALSTORAGE
+    const [selectedClient, setSelectedClient] = useState(() => {
+        if (typeof window !== 'undefined') return localStorage.getItem('hk_saved_client') || '';
+        return '';
+    });
+    const [saleNotes, setSaleNotes] = useState(() => {
+        if (typeof window !== 'undefined') return localStorage.getItem('hk_saved_notes') || '';
+        return '';
+    });
+
     const [productosDB, setProductosDB] = useState([]);
     const [clientesDB, setClientesDB] = useState([]);
     const [promocionesDB, setPromocionesDB] = useState([]);
     const [doctoresDB, setDoctoresDB] = useState([]); 
     
-    const [selectedClient, setSelectedClient] = useState('');
     const [metodoPago, setMetodoPago] = useState('efectivo'); 
     const [montoRecibido, setMontoRecibido] = useState('');
     
@@ -21,7 +38,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const [tipoTarjeta, setTipoTarjeta] = useState('debito');
     const [montosMixtos, setMontosMixtos] = useState({ efectivo: '', tarjeta: '', transferencia: '' });
 
-    const [saleNotes, setSaleNotes] = useState('');
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [selectedDoctor, setSelectedDoctor] = useState('');
 
@@ -41,6 +57,8 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
     const [showClientSearchModal, setShowClientSearchModal] = useState(false);
     const [clientSearchTerm, setClientSearchTerm] = useState('');
+    // 🚀 ESTADO PARA LAS CARPETAS DE SUCURSALES EN PACIENTES
+    const [clientFolder, setClientFolder] = useState('all');
     
     const [showLegacyClients, setShowLegacyClients] = useState(false);
 
@@ -51,6 +69,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         if (!str) return '';
         return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
     };
+
+    // 🚀 EFECTO PARA GUARDAR EL CARRITO, CLIENTE Y NOTAS AUTOMÁTICAMENTE
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('hk_saved_cart', JSON.stringify(cart));
+            localStorage.setItem('hk_saved_client', selectedClient);
+            localStorage.setItem('hk_saved_notes', saleNotes);
+        }
+    }, [cart, selectedClient, saleNotes]);
 
     const fetchDatos = async () => {
         const { data: prods } = await supabase.from('productos')
@@ -148,6 +175,19 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const updateQty = (id, delta) => { setCart(prev => prev.map(item => item.id === id && (item.qty + delta > 0) ? { ...item, qty: item.qty + delta } : item)); scannerInputRef.current?.focus(); };
     const removeItem = (id) => { setCart(prev => prev.filter(item => item.id !== id)); scannerInputRef.current?.focus(); };
 
+    // 🚀 FUNCIÓN PARA LIMPIAR TODO EL CARRITO Y LA MEMORIA
+    const limpiarVentaActual = () => {
+        setCart([]);
+        setSelectedClient('');
+        setSaleNotes('');
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem('hk_saved_cart');
+            localStorage.removeItem('hk_saved_client');
+            localStorage.removeItem('hk_saved_notes');
+        }
+        scannerInputRef.current?.focus();
+    };
+
     const guardarClienteExpres = async () => {
         if (!newClientNombres || !newClientApellidos) return alert(t('camposObligatorios') || 'Faltan campos obligatorios (Nombres y Apellidos).');
         
@@ -238,7 +278,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             });
         }
 
-        // 🚀 REGISTRO AUDITORÍA DE CANCELACIÓN EN EL INVENTARIO
         await supabase.from('historial_inventario').insert([{
             sucursal_id: sucursalId,
             cantidad: 0,
@@ -304,6 +343,17 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const restanteMixto = totalCobrar - sumaMixta;
     const cambioMixto = sumaMixta > totalCobrar ? sumaMixta - totalCobrar : 0;
 
+    // 🚀 NUEVO EFECTO: AUTO-COMPLETAR EFECTIVO CON EL TOTAL
+    useEffect(() => {
+        if (metodoPago === 'efectivo') {
+            if (totalCobrar > 0) {
+                setMontoRecibido(totalCobrar.toString());
+            } else {
+                setMontoRecibido('');
+            }
+        }
+    }, [totalCobrar, metodoPago]);
+
     const openConfirmModal = () => {
         if (cartRender.length === 0) return alert(t('carritoVacio') || 'El carrito está vacío.');
         if (!selectedClient) return alert(t('clienteRequerido') || 'Selecciona un paciente obligatoriamente.');
@@ -368,7 +418,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                     estatus: 'completada' 
                 }).eq('id', saleId);
 
-                // 🚀 FIX AUDITORÍA: SOBRESCRIBIMOS "SISTEMA" POR EL USUARIO REAL EN EL INVENTARIO
                 await supabase.from('historial_inventario')
                     .update({ usuario_nombre: perfilActual?.nombre || 'Recepcionista' })
                     .ilike('motivo', `Venta #${saleId}%`)
@@ -387,8 +436,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 alert(`${t('cobradoExito') || '¡Cobrado con éxito!'} ${stringMetodoPago.toUpperCase()}!`);
             }
             
-            setCart([]); setSelectedClient(''); setMontoRecibido(''); setFolioTransferencia(''); setMontosMixtos({efectivo:'', tarjeta:'', transferencia:''});
-            setSaleNotes(''); setSelectedDoctor(''); setShowConfirmModal(false);
+            limpiarVentaActual();
+            setMontoRecibido(''); setFolioTransferencia(''); setMontosMixtos({efectivo:'', tarjeta:'', transferencia:''});
+            setSelectedDoctor(''); setShowConfirmModal(false);
             
             fetchDatos();
             fetchHistorialVentas(); 
@@ -406,7 +456,8 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 {/* PANEL IZQUIERDO (CARRITO) */}
                 <div className="panel" style={{ flex: 1.6, display: 'flex', flexDirection: 'column', padding: '25px', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
                     
-                    <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexShrink: 0 }}>
+                    {/* BARRA DE BÚSQUEDA Y BOTÓN VACIAR */}
+                    <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexShrink: 0, alignItems: 'center' }}>
                         <div style={{position: 'relative', flex: 1}}>
                             <i className="fa-solid fa-barcode" style={{position: 'absolute', left: '20px', top: '18px', color: 'var(--text-muted)', fontSize: '1.2rem'}}></i>
                             <input 
@@ -415,50 +466,62 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                 style={{ width: '100%', padding: '16px 20px 16px 55px', fontSize: '1.2rem', fontWeight: 'bold', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)', transition: 'all 0.3s' }} 
                             />
                         </div>
-                        <button className="btn-primary" onClick={handleSearch} style={{padding: '0 30px', borderRadius: '12px', border: 'none', cursor: 'pointer', fontSize: '1.2rem'}}><i className="fa-solid fa-magnifying-glass"></i></button>
+                        <button className="btn-primary" onClick={handleSearch} style={{padding: '0 30px', borderRadius: '12px', border: 'none', cursor: 'pointer', fontSize: '1.2rem', height: '54px'}}><i className="fa-solid fa-magnifying-glass"></i></button>
+                        
+                        {cartRender.length > 0 && (
+                            <button 
+                                onClick={() => { if(window.confirm("¿Seguro que deseas vaciar el carrito actual?")) limpiarVentaActual(); }} 
+                                className="btn-action"
+                                style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '0 20px', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', height: '54px', transition: 'all 0.3s' }}
+                                title="Vaciar carrito completo"
+                            >
+                                <i className="fa-solid fa-trash-can"></i> Vaciar
+                            </button>
+                        )}
                     </div>
                     
-                    <div style={{ flex: 1, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-panel)' }}>
-                        <table className="data-table">
+                    {/* CONTENEDOR DE LA TABLA */}
+                    <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-panel)', position: 'relative' }}>
+                        <table className="data-table" style={{ width: '100%' }}>
                             <thead style={{position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-main)'}}>
                                 <tr>
                                     <th style={{padding: '15px'}}>{t('producto')}</th>
                                     <th>{t('tipoPrecio')}</th>
-                                    <th>{t('unitario')}</th>
+                                    <th style={{textAlign: 'center'}}>{t('unitario')}</th>
                                     <th style={{textAlign: 'center'}}>{t('cantidadAbrev')}</th>
                                     <th style={{textAlign: 'right'}}>{t('importeNeto')}</th>
-                                    <th></th>
+                                    <th style={{textAlign: 'center'}}></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {cartRender.length === 0 ? <tr><td colSpan="6" style={{textAlign: 'center', padding: '60px', color: 'var(--text-muted)'}}><i className="fa-solid fa-basket-shopping fa-3x" style={{marginBottom: '15px', display: 'block', opacity: 0.3}}></i> {t('esperandoLecturas')}</td></tr> : 
                                     cartRender.map((item, idx) => (
                                         <tr key={idx}>
-                                            <td style={{padding: '15px'}}>
-                                                <strong style={{color: 'var(--text-main)', fontSize: '1.05rem'}}>{item.name}</strong><br/>
-                                                {item.msjPromo && <span style={{fontSize:'0.75rem', background:'var(--accent)', color:'white', padding:'3px 8px', borderRadius:'6px', display:'inline-block', marginTop:'5px', fontWeight: 'bold'}}><i className="fa-solid fa-tag"></i> {item.msjPromo}</span>}
+                                            <td style={{padding: '15px', minWidth: '180px', maxWidth: '250px', whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.3'}}>
+                                                <strong style={{color: 'var(--text-main)', fontSize: '1rem'}}>{item.name}</strong><br/>
+                                                {item.msjPromo && <span style={{fontSize:'0.7rem', background:'var(--accent)', color:'white', padding:'3px 8px', borderRadius:'6px', display:'inline-block', marginTop:'5px', fontWeight: 'bold'}}><i className="fa-solid fa-tag"></i> {item.msjPromo}</span>}
                                             </td>
-                                            <td>
-                                                <select value={item.tipo_precio} onChange={(e) => updatePriceType(item.id, e.target.value)} style={{padding:'8px 12px', borderRadius: '8px', fontSize: '0.9rem', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', outline: 'none'}}>
+                                            <td style={{padding: '5px'}}>
+                                                <select value={item.tipo_precio} onChange={(e) => updatePriceType(item.id, e.target.value)} style={{padding:'8px', borderRadius: '8px', fontSize: '0.85rem', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', outline: 'none', width: '110px'}}>
                                                     <option value="general">{t('general')}</option>
                                                     <option value="mayoreo">{t('mayoreo')}</option>
                                                     <option value="distribuidor">{t('distribuidor')}</option>
                                                     <option value="medico">{t('precioMedico')}</option>
                                                 </select>
                                             </td>
-                                            <td style={{color: 'var(--text-main)'}}>${item.precio_aplicado.toFixed(2)}</td>
+                                            <td style={{color: 'var(--text-main)', textAlign: 'center'}}>${item.precio_aplicado.toFixed(2)}</td>
                                             <td>
-                                                <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', background: 'var(--bg-main)', padding: '6px', borderRadius: '8px', width: 'max-content', margin: '0 auto'}}>
-                                                    <button onClick={() => updateQty(item.id, -1)} style={{background: 'transparent', color: 'var(--text-main)', border: 'none', cursor:'pointer', fontSize: '1.3rem', padding: '0 10px'}}>-</button>
-                                                    <span style={{color: 'var(--text-main)', fontWeight: 'bold', width: '30px', textAlign: 'center', fontSize: '1.2rem'}}>{item.qty}</span>
-                                                    <button onClick={() => updateQty(item.id, 1)} style={{background: 'transparent', color: 'var(--text-main)', border: 'none', cursor:'pointer', fontSize: '1.3rem', padding: '0 10px'}}>+</button>
+                                                <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', background: 'var(--bg-main)', padding: '4px', borderRadius: '8px', width: 'max-content', margin: '0 auto'}}>
+                                                    <button onClick={() => updateQty(item.id, -1)} style={{background: 'transparent', color: 'var(--text-main)', border: 'none', cursor:'pointer', fontSize: '1.2rem', padding: '0 8px'}}>-</button>
+                                                    <span style={{color: 'var(--text-main)', fontWeight: 'bold', width: '25px', textAlign: 'center', fontSize: '1rem'}}>{item.qty}</span>
+                                                    <button onClick={() => updateQty(item.id, 1)} style={{background: 'transparent', color: 'var(--text-main)', border: 'none', cursor:'pointer', fontSize: '1.2rem', padding: '0 8px'}}>+</button>
                                                 </div>
                                             </td>
-                                            <td style={{textAlign: 'right'}}>
+                                            <td style={{textAlign: 'right', paddingRight: '15px'}}>
                                                 <div style={{fontWeight:'900', fontSize: '1.1rem', color: item.descuentoRow > 0 ? 'var(--success)' : 'var(--text-main)'}}>${item.importeNeto.toFixed(2)}</div>
                                                 {item.descuentoRow > 0 && <div style={{fontSize:'0.8rem', color:'var(--accent)', textDecoration:'line-through'}}>${(item.precio_aplicado * item.qty).toFixed(2)}</div>}
                                             </td>
-                                            <td style={{textAlign: 'center'}}><button onClick={() => removeItem(item.id)} className="btn-action" style={{background: 'transparent', color: 'var(--primary-red)', border: 'none', cursor: 'pointer', fontSize: '1.3rem'}}><i className="fa-solid fa-trash-can"></i></button></td>
+                                            <td style={{textAlign: 'center'}}><button onClick={() => removeItem(item.id)} className="btn-action" style={{background: 'transparent', color: 'var(--primary-red)', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '5px 10px'}}><i className="fa-solid fa-trash-can"></i></button></td>
                                         </tr>
                                     ))
                                 }
@@ -481,7 +544,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                     style={{ flex: 1, padding: '14px 20px', background: 'var(--bg-main)', color: selectedClient ? 'var(--text-main)' : 'var(--text-muted)', border: selectedClient ? '1px solid var(--accent)' : '1px dashed var(--primary-red)', borderRadius: '12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.3s' }}
                                 >
                                     <span style={{fontSize: '1.05rem', fontWeight: selectedClient ? 'bold' : 'normal', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
-                                        {selectedClient === 'general' ? t('publicoGeneral') : (selectedClient ? clientesDB.find(c => c.id === selectedClient)?.nombre : '-- Selecciona un paciente --')}
+                                        {selectedClient === 'general' ? t('publicoGeneral') : (selectedClient ? clientesDB.find(c => c.id == selectedClient)?.nombre : '-- Selecciona un paciente --')}
                                     </span>
                                     <i className="fa-solid fa-magnifying-glass" style={{fontSize: '0.9rem', color: 'var(--accent)'}}></i>
                                 </div>
@@ -628,7 +691,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             
                             <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '15px', color: 'var(--text-main)'}}>
                                 <span style={{fontWeight: 'bold', textTransform: 'uppercase', fontSize: '0.85rem', color: 'var(--text-muted)'}}>Paciente:</span>
-                                <strong>{selectedClient === 'general' ? t('publicoGeneral') : clientesDB.find(c => c.id === selectedClient)?.nombre}</strong>
+                                <strong>{selectedClient === 'general' ? t('publicoGeneral') : clientesDB.find(c => c.id == selectedClient)?.nombre}</strong>
                             </div>
 
                             <div style={{background: 'var(--bg-main)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '15px', marginBottom: '20px'}}>
@@ -765,14 +828,14 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* MODAL: BUSCADOR DE PACIENTES */}
+            {/* 🚀 MODAL: BUSCADOR DE PACIENTES POR SUCURSAL */}
             {showClientSearchModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '16px', width: '550px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left', display: 'flex', flexDirection: 'column', maxHeight: '80vh'}}>
                         
                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
                             <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-users" style={{color: 'var(--accent)', marginRight: '10px'}}></i> Buscar Paciente</h3>
-                            <button onClick={() => { setShowClientSearchModal(false); scannerInputRef.current?.focus(); setShowLegacyClients(false); }} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
+                            <button onClick={() => { setShowClientSearchModal(false); scannerInputRef.current?.focus(); setShowLegacyClients(false); setClientFolder('all'); }} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
                         </div>
                         
                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
@@ -790,8 +853,31 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             </button>
                         </div>
 
+                        {/* 🚀 PESTAÑAS/CARPETAS DE SUCURSAL */}
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
+                            {['all', 1, 2, 3].map(folder => {
+                                const folderNames = { 'all': 'Todos', 1: 'Nápoles', 2: 'Obrera', 3: 'Pedregal' };
+                                const isActive = clientFolder === folder;
+                                return (
+                                    <button 
+                                        key={folder}
+                                        onClick={() => setClientFolder(folder)} 
+                                        style={{
+                                            padding: '8px 14px', borderRadius: '20px', 
+                                            background: isActive ? 'var(--accent)' : 'var(--bg-main)', 
+                                            color: isActive ? '#fff' : 'var(--text-muted)', 
+                                            border: isActive ? 'none' : '1px solid var(--border-color)', 
+                                            fontWeight: 'bold', cursor: 'pointer', transition: '0.2s', whiteSpace: 'nowrap'
+                                        }}
+                                    >
+                                        {folder === 'all' ? <i className="fa-solid fa-users"></i> : <i className="fa-solid fa-folder"></i>} {folderNames[folder]}
+                                    </button>
+                                )
+                            })}
+                        </div>
+
                         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '5px' }}>
-                            {t('publicoGeneral').toLowerCase().includes(clientSearchTerm.toLowerCase()) && (
+                            {t('publicoGeneral').toLowerCase().includes(clientSearchTerm.toLowerCase()) && clientFolder === 'all' && (
                                 <div onClick={() => { setSelectedClient('general'); setShowClientSearchModal(false); scannerInputRef.current?.focus(); setShowLegacyClients(false); }} style={{ padding: '15px', borderRadius: '10px', cursor: 'pointer', color: 'var(--accent)', fontWeight: 'bold', background: 'rgba(2, 132, 199, 0.05)', border: '1px dashed var(--accent)', display: 'flex', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(2, 132, 199, 0.1)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(2, 132, 199, 0.05)'}>
                                     <i className="fa-solid fa-users" style={{marginRight: '12px', fontSize: '1.2rem'}}></i> {t('publicoGeneral')}
                                 </div>
@@ -801,10 +887,21 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                 const isLegacy = c.codigo_expediente && c.codigo_expediente.includes('LEGACY');
                                 if (!showLegacyClients && isLegacy) return false;
 
-                                const term = clientSearchTerm.toLowerCase();
-                                return c.nombre.toLowerCase().includes(term) || 
-                                       (c.telefono && c.telefono.includes(term)) || 
-                                       (c.codigo_expediente && c.codigo_expediente.toLowerCase().includes(term));
+                                const term = clientSearchTerm.toLowerCase().trim();
+                                
+                                // 1. Búsqueda Global: Si escriben, se ignora la carpeta y se busca en todo
+                                if (term) {
+                                    return c.nombre.toLowerCase().includes(term) || 
+                                           (c.telefono && c.telefono.includes(term)) || 
+                                           (c.codigo_expediente && c.codigo_expediente.toLowerCase().includes(term));
+                                }
+
+                                // 2. Búsqueda por Carpeta: Si no escriben, filtramos por la sucursal_registro_id
+                                if (clientFolder !== 'all') {
+                                    return c.sucursal_registro_id === clientFolder;
+                                }
+
+                                return true;
                             }).map(cli => (
                                 <div key={cli.id} onClick={() => { setSelectedClient(cli.id); setShowClientSearchModal(false); scannerInputRef.current?.focus(); setShowLegacyClients(false); }} style={{ padding: '15px', borderRadius: '10px', cursor: 'pointer', color: 'var(--text-main)', fontSize: '1rem', transition: '0.2s', border: '1px solid var(--border-color)', background: 'var(--bg-main)' }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}>
                                     <strong style={{display: 'block', marginBottom: '4px'}}>{cli.nombre}</strong>

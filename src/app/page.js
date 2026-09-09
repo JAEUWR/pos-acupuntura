@@ -338,12 +338,28 @@ export default function Home() {
         const { data } = await supabase.from('perfiles_usuarios').select('*').eq('id', userId).single();
         if (data) {
             setPerfil(data);
-            if (data.sucursal_id) {
+            
+            // 🚀 LÓGICA DE MEMORIA INTELIGENTE
+            // 1. Buscamos si la computadora ya se acordaba de la sucursal
+            const savedBranch = localStorage.getItem('hk_branch_memory');
+            
+            if (savedBranch) {
+                setBranch(savedBranch);
+            } else if (data.sucursal_id) {
+                // 2. Si es computadora nueva, jalamos la sucursal asignada a su perfil en Supabase
                 const branchMapReverse = { 1: 'napoles', 2: 'obrera', 3: 'pedregal' };
-                setBranch(branchMapReverse[data.sucursal_id]);
+                const defaultBranch = branchMapReverse[data.sucursal_id] || 'napoles';
+                setBranch(defaultBranch);
+                localStorage.setItem('hk_branch_memory', defaultBranch);
             }
         }
         setLoadingAuth(false);
+    };
+
+    // 🚀 INTERCEPTOR: Cada vez que cambian de sucursal en el menú, lo guardamos en la memoria
+    const handleSetBranch = (newBranch) => {
+        setBranch(newBranch);
+        localStorage.setItem('hk_branch_memory', newBranch);
     };
 
     if (!isMounted) return null; 
@@ -358,7 +374,8 @@ export default function Home() {
 
     return (
         <LanguageProvider>
-            <DashboardApp session={session} perfil={perfil} branch={branch} setBranch={setBranch} />
+            {/* 🚀 Pasamos nuestro interceptor en lugar del setBranch original */}
+            <DashboardApp session={session} perfil={perfil} branch={branch} setBranch={handleSetBranch} />
         </LanguageProvider>
     );
 }
