@@ -7,7 +7,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const { t } = useLanguage();
 
     const [barcode, setBarcode] = useState('');
-    // 🚀 INICIALIZACIÓN DEL CARRITO DESDE LOCALSTORAGE SI EXISTE
     const [cart, setCart] = useState(() => {
         if (typeof window !== 'undefined') {
             const savedCart = localStorage.getItem('hk_saved_cart');
@@ -16,7 +15,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         return [];
     });
     
-    // 🚀 INICIALIZACIÓN DEL PACIENTE Y NOTAS DESDE LOCALSTORAGE
     const [selectedClient, setSelectedClient] = useState(() => {
         if (typeof window !== 'undefined') return localStorage.getItem('hk_saved_client') || '';
         return '';
@@ -49,28 +47,28 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
     const [showCatalogModal, setShowCatalogModal] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
-    const [showNewClientModal, setShowNewClientModal] = useState(false);
     
+    const [showNewClientModal, setShowNewClientModal] = useState(false);
     const [newClientNombres, setNewClientNombres] = useState('');
     const [newClientApellidos, setNewClientApellidos] = useState('');
     const [newClientPhone, setNewClientPhone] = useState('');
+    
+    const [duplicateClientFound, setDuplicateClientFound] = useState(null);
 
     const [showClientSearchModal, setShowClientSearchModal] = useState(false);
     const [clientSearchTerm, setClientSearchTerm] = useState('');
-    // 🚀 ESTADO PARA LAS CARPETAS DE SUCURSALES EN PACIENTES
-    const [clientFolder, setClientFolder] = useState('all');
     
-    const [showLegacyClients, setShowLegacyClients] = useState(false);
-
     const branchIdMap = { napoles: 1, obrera: 2, pedregal: 3 };
     const sucursalId = branchIdMap[(branch || '').toLowerCase()] || 1;
 
+    const [clientFolder, setClientFolder] = useState(sucursalId);
+    const [showLegacyClients, setShowLegacyClients] = useState(false);
+
     const formatUpperCase = (str) => {
         if (!str) return '';
-        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').toUpperCase();
     };
 
-    // 🚀 EFECTO PARA GUARDAR EL CARRITO, CLIENTE Y NOTAS AUTOMÁTICAMENTE
     useEffect(() => {
         if (typeof window !== 'undefined') {
             localStorage.setItem('hk_saved_cart', JSON.stringify(cart));
@@ -124,8 +122,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     useEffect(() => {
         fetchDatos();
         fetchHistorialVentas();
+        setClientFolder(sucursalId); 
         scannerInputRef.current?.focus();
-    }, [branch]);
+    }, [branch, sucursalId]);
 
     useEffect(() => {
         if (showHistorialModal) {
@@ -133,15 +132,20 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         }
     }, [historialDate, showHistorialModal]);
 
-    const modalsState = useRef({ cat: false, cli: false, drop: false, conf: false, hist: false });
-    useEffect(() => { modalsState.current = { cat: showCatalogModal, cli: showNewClientModal, drop: showClientSearchModal, conf: showConfirmModal, hist: showHistorialModal }; }, [showCatalogModal, showNewClientModal, showClientSearchModal, showConfirmModal, showHistorialModal]);
+    const modalsState = useRef({ cat: false, cli: false, drop: false, conf: false, hist: false, dup: false });
+    useEffect(() => { 
+        modalsState.current = { 
+            cat: showCatalogModal, cli: showNewClientModal, drop: showClientSearchModal, 
+            conf: showConfirmModal, hist: showHistorialModal, dup: duplicateClientFound !== null 
+        }; 
+    }, [showCatalogModal, showNewClientModal, showClientSearchModal, showConfirmModal, showHistorialModal, duplicateClientFound]);
 
     useEffect(() => {
         const handleGlobalKeyDown = (e) => {
             const activeElement = document.activeElement;
             const isInputFocused = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.tagName === 'SELECT');
             const mods = modalsState.current;
-            if (!isInputFocused && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !mods.cat && !mods.cli && !mods.drop && !mods.conf && !mods.hist) {
+            if (!isInputFocused && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !mods.cat && !mods.cli && !mods.drop && !mods.conf && !mods.hist && !mods.dup) {
                 scannerInputRef.current?.focus();
             }
         };
@@ -154,7 +158,11 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         if (!targetCode) return;
         const product = productosDB.find(p => p.codigo_barras === targetCode);
         if (product) { addToCart(product); setBarcode(''); } 
-        else { alert(`Código "${targetCode}" no registrado.`); setBarcode(''); scannerInputRef.current?.focus(); }
+        else { 
+            const errorMsg = t('codigoRegistradoAlert') || `Código "{0}" no registrado.`;
+            alert(errorMsg.replace('{0}', targetCode)); 
+            setBarcode(''); scannerInputRef.current?.focus(); 
+        }
     };
 
     const addToCart = (product) => {
@@ -175,11 +183,11 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const updateQty = (id, delta) => { setCart(prev => prev.map(item => item.id === id && (item.qty + delta > 0) ? { ...item, qty: item.qty + delta } : item)); scannerInputRef.current?.focus(); };
     const removeItem = (id) => { setCart(prev => prev.filter(item => item.id !== id)); scannerInputRef.current?.focus(); };
 
-    // 🚀 FUNCIÓN PARA LIMPIAR TODO EL CARRITO Y LA MEMORIA
     const limpiarVentaActual = () => {
         setCart([]);
         setSelectedClient('');
         setSaleNotes('');
+        setMetodoPago('efectivo');
         if (typeof window !== 'undefined') {
             localStorage.removeItem('hk_saved_cart');
             localStorage.removeItem('hk_saved_client');
@@ -195,13 +203,13 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         const apellidosNorm = newClientApellidos.trim();
         const fullName = `${nombresNorm} ${apellidosNorm}`;
 
-        const { data: dupes } = await supabase.from('clientes')
-            .select('id')
-            .eq('nombres', nombresNorm)
-            .eq('apellidos', apellidosNorm);
+        const dupes = clientesDB.filter(c => c.nombres === nombresNorm && c.apellidos === apellidosNorm);
 
-        if (dupes && dupes.length > 0) {
-            return alert(`⚠️ El paciente "${fullName}" ya existe en el sistema. Búscalo en la lupa de pacientes.`);
+        if (dupes.length > 0) {
+            const existingClient = dupes[0];
+            setDuplicateClientFound(existingClient);
+            setShowNewClientModal(false); 
+            return;
         }
 
         const { data, error } = await supabase.from('clientes').insert([{ 
@@ -212,7 +220,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             sucursal_registro_id: sucursalId
         }]).select();
 
-        if (error) return alert('Error al crear paciente: ' + error.message);
+        if (error) return alert((t('errorCrearPaciente') || 'Error al crear paciente: ') + error.message);
 
         const newId = data[0].id;
         const yearMonth = new Date().getFullYear().toString().slice(-2) + (new Date().getMonth() + 1).toString().padStart(2, '0');
@@ -232,6 +240,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         setTimeout(() => scannerInputRef.current?.focus(), 50);
     };
 
+    const handleSelectDuplicate = () => {
+        setSelectedClient(duplicateClientFound.id);
+        setDuplicateClientFound(null);
+        setNewClientNombres(''); 
+        setNewClientApellidos(''); 
+        setNewClientPhone('');
+        setTimeout(() => scannerInputRef.current?.focus(), 50);
+    };
+
     const toggleAccesoRapido = async (prod) => {
         const newState = !prod.acceso_rapido;
         const { error } = await supabase.from('productos').update({ acceso_rapido: newState }).eq('id', prod.id);
@@ -245,7 +262,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
         const { error } = await supabase.from('ventas').update({ estatus: 'cancelada' }).eq('id', venta.id);
         if (error) {
-            alert('Error al cancelar la venta: ' + error.message);
+            alert((t('errorCancelarVenta') || 'Error al cancelar la venta: ') + error.message);
             return;
         }
 
@@ -310,7 +327,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 msjPromo = `-${promo.valor}% Off`;
             } else if (promo.tipo_descuento === 'precio_fijo') {
                 descuentoRow = Math.max(0, (item.precio_aplicado - promo.valor) * item.qty);
-                msjPromo = `Precio Esp.`;
+                msjPromo = t('precioEsp') || `Precio Esp.`;
             } else if (promo.tipo_descuento === 'volumen' && promo.cantidad_requerida > 0) {
                 const cantidadA_Evaluar = promo.grupo_id ? cantidadesPorGrupo[item.grupo_id] : item.qty;
                 if (cantidadA_Evaluar >= promo.cantidad_requerida) {
@@ -343,7 +360,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const restanteMixto = totalCobrar - sumaMixta;
     const cambioMixto = sumaMixta > totalCobrar ? sumaMixta - totalCobrar : 0;
 
-    // 🚀 NUEVO EFECTO: AUTO-COMPLETAR EFECTIVO CON EL TOTAL
     useEffect(() => {
         if (metodoPago === 'efectivo') {
             if (totalCobrar > 0) {
@@ -353,6 +369,20 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             }
         }
     }, [totalCobrar, metodoPago]);
+
+    const getResumenMetodoPago = () => {
+        if (metodoPago === 'efectivo') return t('efectivo') || 'Efectivo';
+        if (metodoPago === 'tarjeta') return `${t('tarjeta') || 'Tarjeta'} (${tipoTarjeta === 'debito' ? (t('debito') || 'Débito') : (t('credito') || 'Crédito')})`;
+        if (metodoPago === 'transferencia') return t('transferencia') || `Transferencia`;
+        if (metodoPago === 'mixto') {
+            let desc = [];
+            if (tMixEfe > 0) desc.push(t('efectivo') || 'Efectivo');
+            if (tMixTar > 0) desc.push(t('tarjeta') || 'Tarjeta');
+            if (tMixTra > 0) desc.push(t('transferenciaAbrev') || 'Transf.');
+            return `${t('pagoMixto') || 'Pago Mixto'} (${desc.join(' + ')})`;
+        }
+        return '';
+    };
 
     const openConfirmModal = () => {
         if (cartRender.length === 0) return alert(t('carritoVacio') || 'El carrito está vacío.');
@@ -371,17 +401,18 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
         if (metodoPago === 'efectivo') {
             cashToRegister = totalCobrar;
+            stringMetodoPago = t('efectivo') || 'Efectivo';
         } else if (metodoPago === 'tarjeta') {
-            stringMetodoPago = `Tarjeta (${tipoTarjeta === 'debito' ? t('debito') || 'Déb' : t('credito') || 'Cré'})`;
+            stringMetodoPago = `${t('tarjeta') || 'Tarjeta'} (${tipoTarjeta === 'debito' ? t('debito') || 'Déb' : t('credito') || 'Cré'})`;
         } else if (metodoPago === 'transferencia') {
-            stringMetodoPago = `Transferencia (Folio: ${folioTransferencia.trim()})`;
+            stringMetodoPago = `${t('transferencia') || 'Transferencia'} (Folio: ${folioTransferencia.trim()})`;
         } else if (metodoPago === 'mixto') {
             const efectivoNeto = tMixEfe - cambioMixto;
-            if (efectivoNeto < 0) return alert('El cambio supera el monto en efectivo. No puedes dar cambio de tarjeta/transferencia.');
+            if (efectivoNeto < 0) return alert(t('cambioMontoTarjeta') || 'El cambio supera el monto en efectivo. No puedes dar cambio de tarjeta/transferencia.');
 
             let desglose = [];
             if (efectivoNeto > 0) desglose.push(`Efe: $${efectivoNeto.toFixed(2)}`);
-            if (tMixTar > 0) desglose.push(`Tar (${tipoTarjeta === 'debito' ? 'Déb' : 'Cré'}): $${tMixTar.toFixed(2)}`);
+            if (tMixTar > 0) desglose.push(`Tar (${tipoTarjeta === 'debito' ? (t('debito') || 'Déb') : (t('credito') || 'Cré')}): $${tMixTar.toFixed(2)}`);
             if (tMixTra > 0) desglose.push(`Tra: $${tMixTra.toFixed(2)}${folioTransferencia ? ' f-'+folioTransferencia : ''}`);
             
             stringMetodoPago = `Mixto (${desglose.join(', ')})`;
@@ -389,7 +420,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         }
 
         const btn = document.getElementById('btn-confirm-checkout');
-        if(btn) { btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Procesando...`; btn.disabled = true; }
+        if(btn) { btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${t('procesando') || 'Procesando...'}`; btn.disabled = true; }
 
         const payloadItems = cartRender.map(item => ({
             producto_id: item.id, qty: item.qty, tipo_precio: item.tipo_precio,
@@ -429,9 +460,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             }
 
             if (metodoPago === 'efectivo') {
-                alert(`${t('cobradoExito') || '¡Cobrado con éxito!'} EFECTIVO!\n\n${t('cambio') || 'Cambio'}: $${(parseFloat(montoRecibido) - totalCobrar).toFixed(2)}`);
+                alert(`${t('cobradoExito') || '¡Cobrado con éxito!'} ${t('efectivo')?.toUpperCase() || 'EFECTIVO'}!\n\n${t('cambio') || 'Cambio'}: $${(parseFloat(montoRecibido) - totalCobrar).toFixed(2)}`);
             } else if (metodoPago === 'mixto') {
-                alert(`${t('cobradoExito') || '¡Cobrado con éxito!'} PAGO MIXTO!\n\n${t('cambio') || 'Cambio'}: $${cambioMixto.toFixed(2)}`);
+                alert(`${t('cobradoExito') || '¡Cobrado con éxito!'} ${t('pagoMixto')?.toUpperCase() || 'PAGO MIXTO'}!\n\n${t('cambio') || 'Cambio'}: $${cambioMixto.toFixed(2)}`);
             } else {
                 alert(`${t('cobradoExito') || '¡Cobrado con éxito!'} ${stringMetodoPago.toUpperCase()}!`);
             }
@@ -439,6 +470,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             limpiarVentaActual();
             setMontoRecibido(''); setFolioTransferencia(''); setMontosMixtos({efectivo:'', tarjeta:'', transferencia:''});
             setSelectedDoctor(''); setShowConfirmModal(false);
+            setMetodoPago('efectivo'); 
             
             fetchDatos();
             fetchHistorialVentas(); 
@@ -456,7 +488,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 {/* PANEL IZQUIERDO (CARRITO) */}
                 <div className="panel" style={{ flex: 1.6, display: 'flex', flexDirection: 'column', padding: '25px', borderRadius: '16px', boxShadow: 'var(--shadow-sm)' }}>
                     
-                    {/* BARRA DE BÚSQUEDA Y BOTÓN VACIAR */}
                     <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexShrink: 0, alignItems: 'center' }}>
                         <div style={{position: 'relative', flex: 1}}>
                             <i className="fa-solid fa-barcode" style={{position: 'absolute', left: '20px', top: '18px', color: 'var(--text-muted)', fontSize: '1.2rem'}}></i>
@@ -470,17 +501,16 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         
                         {cartRender.length > 0 && (
                             <button 
-                                onClick={() => { if(window.confirm("¿Seguro que deseas vaciar el carrito actual?")) limpiarVentaActual(); }} 
+                                onClick={() => { if(window.confirm(t('vaciarCarritoConfirm') || "¿Seguro que deseas vaciar el carrito actual?")) limpiarVentaActual(); }} 
                                 className="btn-action"
                                 style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '0 20px', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', height: '54px', transition: 'all 0.3s' }}
-                                title="Vaciar carrito completo"
+                                title={t('vaciarCarritoTooltip') || "Vaciar carrito completo"}
                             >
-                                <i className="fa-solid fa-trash-can"></i> Vaciar
+                                <i className="fa-solid fa-trash-can"></i> {t('vaciarCarritoBtn') || 'Vaciar'}
                             </button>
                         )}
                     </div>
                     
-                    {/* CONTENEDOR DE LA TABLA */}
                     <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-panel)', position: 'relative' }}>
                         <table className="data-table" style={{ width: '100%' }}>
                             <thead style={{position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-main)'}}>
@@ -535,7 +565,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                     
                     <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
                         
-                        {/* PACIENTE ESTÉTICO */}
                         <div style={{flexShrink: 0}}>
                             <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}>{t('asignarPaciente')} *</label>
                             <div style={{display: 'flex', gap: '10px'}}>
@@ -552,17 +581,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             </div>
                         </div>
 
-                        {/* FORMA DE PAGO */}
                         <div style={{flexShrink: 0}}>
                             <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}>{t('formaPago')}</label>
                             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px'}}>
-                                <button onClick={() => setMetodoPago('efectivo')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'efectivo' ? 'var(--success)' : 'var(--bg-main)', color: metodoPago === 'efectivo' ? 'white' : 'var(--text-main)', border: metodoPago === 'efectivo' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-money-bill-1-wave" style={{marginRight: '5px'}}></i> Efectivo</button>
-                                <button onClick={() => setMetodoPago('tarjeta')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'tarjeta' ? 'var(--accent)' : 'var(--bg-main)', color: metodoPago === 'tarjeta' ? 'white' : 'var(--text-main)', border: metodoPago === 'tarjeta' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-credit-card" style={{marginRight: '5px'}}></i> Tarjeta</button>
-                                <button onClick={() => setMetodoPago('transferencia')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'transferencia' ? '#9333ea' : 'var(--bg-main)', color: metodoPago === 'transferencia' ? 'white' : 'var(--text-main)', border: metodoPago === 'transferencia' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-building-columns" style={{marginRight: '5px'}}></i> Transf.</button>
-                                <button onClick={() => setMetodoPago('mixto')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'mixto' ? '#eab308' : 'var(--bg-main)', color: metodoPago === 'mixto' ? 'white' : 'var(--text-main)', border: metodoPago === 'mixto' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-chart-pie" style={{marginRight: '5px'}}></i> Mixto</button>
+                                <button onClick={() => setMetodoPago('efectivo')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'efectivo' ? 'var(--success)' : 'var(--bg-main)', color: metodoPago === 'efectivo' ? 'white' : 'var(--text-main)', border: metodoPago === 'efectivo' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-money-bill-1-wave" style={{marginRight: '5px'}}></i> {t('efectivo') || 'Efectivo'}</button>
+                                <button onClick={() => setMetodoPago('tarjeta')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'tarjeta' ? 'var(--accent)' : 'var(--bg-main)', color: metodoPago === 'tarjeta' ? 'white' : 'var(--text-main)', border: metodoPago === 'tarjeta' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-credit-card" style={{marginRight: '5px'}}></i> {t('tarjeta') || 'Tarjeta'}</button>
+                                <button onClick={() => setMetodoPago('transferencia')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'transferencia' ? '#9333ea' : 'var(--bg-main)', color: metodoPago === 'transferencia' ? 'white' : 'var(--text-main)', border: metodoPago === 'transferencia' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-building-columns" style={{marginRight: '5px'}}></i> {t('transferenciaAbrev') || 'Transf.'}</button>
+                                <button onClick={() => setMetodoPago('mixto')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'mixto' ? '#eab308' : 'var(--bg-main)', color: metodoPago === 'mixto' ? 'white' : 'var(--text-main)', border: metodoPago === 'mixto' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-chart-pie" style={{marginRight: '5px'}}></i> {t('mixto') || 'Mixto'}</button>
                             </div>
 
-                            {/* DETALLES DEL PAGO */}
                             {metodoPago === 'efectivo' && (
                                 <div style={{background: 'rgba(22, 163, 74, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid var(--success)'}}>
                                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
@@ -594,9 +621,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             {metodoPago === 'mixto' && (
                                 <div style={{background: 'rgba(234, 179, 8, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid #eab308'}}>
                                     <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '10px'}}>
-                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--success)', display: 'block', marginBottom: '4px'}}>Efectivo</label><input type="number" value={montosMixtos.efectivo} onChange={e=>setMontosMixtos({...montosMixtos, efectivo: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--success)', background: 'var(--bg-main)', color: 'var(--success)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
-                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent)', display: 'block', marginBottom: '4px'}}>Tarjeta</label><input type="number" value={montosMixtos.tarjeta} onChange={e=>setMontosMixtos({...montosMixtos, tarjeta: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--bg-main)', color: 'var(--accent)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
-                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: '#9333ea', display: 'block', marginBottom: '4px'}}>Transf.</label><input type="number" value={montosMixtos.transferencia} onChange={e=>setMontosMixtos({...montosMixtos, transferencia: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #9333ea', background: 'var(--bg-main)', color: '#9333ea', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
+                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--success)', display: 'block', marginBottom: '4px'}}>{t('efectivo') || 'Efectivo'}</label><input type="number" value={montosMixtos.efectivo} onChange={e=>setMontosMixtos({...montosMixtos, efectivo: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--success)', background: 'var(--bg-main)', color: 'var(--success)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
+                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent)', display: 'block', marginBottom: '4px'}}>{t('tarjeta') || 'Tarjeta'}</label><input type="number" value={montosMixtos.tarjeta} onChange={e=>setMontosMixtos({...montosMixtos, tarjeta: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--bg-main)', color: 'var(--accent)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
+                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: '#9333ea', display: 'block', marginBottom: '4px'}}>{t('transferenciaAbrev') || 'Transf.'}</label><input type="number" value={montosMixtos.transferencia} onChange={e=>setMontosMixtos({...montosMixtos, transferencia: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #9333ea', background: 'var(--bg-main)', color: '#9333ea', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
                                     </div>
                                     {(parseFloat(montosMixtos.tarjeta) > 0) && (
                                         <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
@@ -605,26 +632,24 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                         </div>
                                     )}
                                     {(parseFloat(montosMixtos.transferencia) > 0) && (
-                                        <input type="text" value={folioTransferencia} onChange={(e) => setFolioTransferencia(e.target.value)} placeholder="Folio Transf. (Opcional)" style={{width: '100%', padding: '8px', border: '1px solid #9333ea', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderRadius: '6px', fontSize: '0.85rem', outline: 'none', marginBottom: '10px'}} />
+                                        <input type="text" value={folioTransferencia} onChange={(e) => setFolioTransferencia(e.target.value)} placeholder={t('ingresaFolio') || "Folio Transf. (Opcional)"} style={{width: '100%', padding: '8px', border: '1px solid #9333ea', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderRadius: '6px', fontSize: '0.85rem', outline: 'none', marginBottom: '10px'}} />
                                     )}
                                     <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: 'bold'}}>
-                                        <span style={{color: 'var(--text-muted)'}}>Restante: <strong style={{color: restanteMixto > 0 ? 'var(--primary-red)' : 'var(--success)'}}>${Math.max(0, restanteMixto).toFixed(2)}</strong></span>
+                                        <span style={{color: 'var(--text-muted)'}}>{t('restante') || 'Restante'}: <strong style={{color: restanteMixto > 0 ? 'var(--primary-red)' : 'var(--success)'}}>${Math.max(0, restanteMixto).toFixed(2)}</strong></span>
                                         <span style={{color: 'var(--text-muted)'}}>{t('cambio')}: <strong style={{color: 'var(--text-main)'}}>${cambioMixto.toFixed(2)}</strong></span>
                                     </div>
                                 </div>
                             )}
                         </div>
 
-                        {/* NOTAS DE VENTA */}
                         <div style={{flexShrink: 0}}>
                             <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}><i className="fa-solid fa-pen-to-square" style={{color: 'var(--accent)', marginRight: '5px'}}></i> {t('notasVentaOpcional') || 'Notas de la Venta (Opcional)'}</label>
                             <textarea 
-                                value={saleNotes} onChange={e => setSaleNotes(e.target.value)} placeholder="Escribe aquí instrucciones especiales, comentarios del paciente..."
+                                value={saleNotes} onChange={e => setSaleNotes(e.target.value)} placeholder={t('ejNotaVenta') || "Escribe aquí instrucciones especiales..."}
                                 style={{width: '100%', padding: '12px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '0.95rem', outline: 'none', resize: 'none', minHeight: '60px'}}
                             />
                         </div>
 
-                        {/* AÑADIR RÁPIDO */}
                         <div style={{flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px'}}>
                             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                                 <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1rem'}}><i className="fa-solid fa-bolt" style={{color:'var(--accent)', marginRight: '8px'}}></i> {t('anadirRapido')}</h3>
@@ -634,7 +659,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             {productosAnclados.length === 0 ? (
                                 <div style={{textAlign:'center', padding:'10px', color:'var(--text-muted)', fontSize:'0.85rem', background:'var(--bg-main)', borderRadius:'12px', border:'1px dashed var(--border-color)'}}>
                                     <i className="fa-regular fa-star" style={{fontSize:'1.2rem', marginBottom:'5px', display:'block'}}></i>
-                                    Marca la estrella en el catálogo para anclar.
+                                    {t('marcaEstrellaAnclar') || "Marca la estrella en el catálogo para anclar."}
                                 </div>
                             ) : (
                                 <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(110px, 1fr))', alignContent: 'start', gap:'8px', overflowY: 'auto', paddingRight: '5px', flex: 1}}>
@@ -649,7 +674,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         </div>
                     </div>
 
-                    {/* TOTALES, BOTÓN DE COBRO Y BOTÓN HISTORIAL (FIJOS AL FONDO) */}
                     <div style={{ padding: '25px', background: 'var(--bg-panel)', borderTop: '1px solid var(--border-color)', marginTop: 'auto', flexShrink: 0, boxShadow: '0 -4px 20px rgba(0,0,0,0.05)' }}>
                         <div style={{display:'flex', justifyContent:'space-between', color:'var(--text-muted)', marginBottom:'10px', fontSize: '1rem', fontWeight: 'bold'}}><span>{t('subtotal')}</span><span>${subtotalBruto.toFixed(2)}</span></div>
                         <div style={{display:'flex', justifyContent:'space-between', color:'var(--accent)', marginBottom:'15px', fontSize: '1rem', fontWeight: 'bold'}}><span>{t('descuentos')}</span><span>-${totalDescuentos.toFixed(2)}</span></div>
@@ -661,7 +685,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         
                         <div style={{display: 'flex', gap: '15px'}}>
                             <button onClick={() => setShowHistorialModal(true)} className="btn-action" style={{flex: 1, padding: '20px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.3s'}}>
-                                <i className="fa-solid fa-clock-history"></i> Historial
+                                <i className="fa-solid fa-clock-history"></i> {t('historialBtn') || 'Historial'}
                             </button>
 
                             <button onClick={openConfirmModal} className="btn-primary" 
@@ -690,8 +714,8 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         <div style={{padding: '30px', maxHeight: '65vh', overflowY: 'auto'}}>
                             
                             <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '15px', color: 'var(--text-main)'}}>
-                                <span style={{fontWeight: 'bold', textTransform: 'uppercase', fontSize: '0.85rem', color: 'var(--text-muted)'}}>Paciente:</span>
-                                <strong>{selectedClient === 'general' ? t('publicoGeneral') : clientesDB.find(c => c.id == selectedClient)?.nombre}</strong>
+                                <span style={{fontWeight: 'bold', textTransform: 'uppercase', fontSize: '0.85rem', color: 'var(--text-muted)'}}>{t('paciente') || 'Paciente'}:</span>
+                                <strong>{selectedClient === 'general' ? t('publicoGeneral') : clientesDB.find(c => c.id === selectedClient)?.nombre}</strong>
                             </div>
 
                             <div style={{background: 'var(--bg-main)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '15px', marginBottom: '20px'}}>
@@ -702,17 +726,24 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                     </div>
                                 ))}
                                 <div style={{borderTop: '1px dashed var(--border-color)', margin: '15px 0'}}></div>
+                                
+                                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                                    <span style={{fontWeight: 'bold', textTransform: 'uppercase', fontSize: '0.85rem', color: 'var(--text-muted)'}}>{t('formaPago') || 'Forma de Pago'}:</span>
+                                    <span style={{background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', padding: '4px 12px', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.9rem', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
+                                        {getResumenMetodoPago()}
+                                    </span>
+                                </div>
+                                
                                 <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '1.3rem', fontWeight: '900', color: 'var(--success)'}}>
                                     <span>{t('total')}</span>
                                     <span>${totalCobrar.toFixed(2)}</span>
                                 </div>
                             </div>
 
-                            {/* ASIGNACIÓN DE DOCTOR */}
                             {hasConsulta && (
                                 <div style={{background: 'rgba(2, 136, 209, 0.05)', border: '1px solid rgba(2, 136, 209, 0.3)', padding: '20px', borderRadius: '12px', marginBottom: '20px'}}>
-                                    <label style={{display: 'block', color: '#0288d1', fontWeight: '900', fontSize: '1.1rem', marginBottom: '10px'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> ¿Qué Médico atendió la consulta? *</label>
-                                    <p style={{fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '15px'}}>Selecciona al doctor para asignar el pago correctamente.</p>
+                                    <label style={{display: 'block', color: '#0288d1', fontWeight: '900', fontSize: '1.1rem', marginBottom: '10px'}}><i className="fa-solid fa-user-doctor" style={{marginRight: '8px'}}></i> {t('preguntaDoctor') || '¿Qué Médico atendió la consulta?'} *</label>
+                                    <p style={{fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '15px'}}>{t('descDoctor') || 'Selecciona al doctor para asignar el pago correctamente.'}</p>
                                     
                                     <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px'}}>
                                         {doctoresDB.map(doc => {
@@ -834,14 +865,14 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '30px', borderRadius: '16px', width: '550px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left', display: 'flex', flexDirection: 'column', maxHeight: '80vh'}}>
                         
                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
-                            <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-users" style={{color: 'var(--accent)', marginRight: '10px'}}></i> Buscar Paciente</h3>
-                            <button onClick={() => { setShowClientSearchModal(false); scannerInputRef.current?.focus(); setShowLegacyClients(false); setClientFolder('all'); }} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
+                            <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-users" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('buscandoPaciente') || 'Buscar Paciente'}</h3>
+                            <button onClick={() => { setShowClientSearchModal(false); scannerInputRef.current?.focus(); setShowLegacyClients(false); setClientFolder(sucursalId); }} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
                         </div>
                         
                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
                             <div style={{position: 'relative', flex: 1}}>
                                 <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '16px', top: '16px', color: 'var(--text-muted)'}}></i>
-                                <input type="text" autoFocus placeholder="Buscar por nombre, expediente o teléfono..." value={clientSearchTerm} onChange={(e) => setClientSearchTerm(e.target.value)} style={{width: '100%', padding: '14px 14px 14px 45px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} />
+                                <input type="text" autoFocus placeholder={t('buscarPlaceholderExpediente') || "Buscar por nombre, expediente o teléfono..."} value={clientSearchTerm} onChange={(e) => setClientSearchTerm(formatUpperCase(e.target.value))} style={{width: '100%', padding: '14px 14px 14px 45px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} />
                             </div>
                             <button 
                                 onClick={() => setShowLegacyClients(!showLegacyClients)}
@@ -853,10 +884,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             </button>
                         </div>
 
-                        {/* 🚀 PESTAÑAS/CARPETAS DE SUCURSAL */}
                         <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
                             {['all', 1, 2, 3].map(folder => {
-                                const folderNames = { 'all': 'Todos', 1: 'Nápoles', 2: 'Obrera', 3: 'Pedregal' };
+                                const folderNames = { 'all': t('todos') || 'Todos', 1: 'Nápoles', 2: 'Obrera', 3: 'Pedregal' };
                                 const isActive = clientFolder === folder;
                                 return (
                                     <button 
@@ -889,14 +919,12 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
 
                                 const term = clientSearchTerm.toLowerCase().trim();
                                 
-                                // 1. Búsqueda Global: Si escriben, se ignora la carpeta y se busca en todo
                                 if (term) {
                                     return c.nombre.toLowerCase().includes(term) || 
                                            (c.telefono && c.telefono.includes(term)) || 
                                            (c.codigo_expediente && c.codigo_expediente.toLowerCase().includes(term));
                                 }
 
-                                // 2. Búsqueda por Carpeta: Si no escriben, filtramos por la sucursal_registro_id
                                 if (clientFolder !== 'all') {
                                     return c.sucursal_registro_id === clientFolder;
                                 }
@@ -907,7 +935,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                     <strong style={{display: 'block', marginBottom: '4px'}}>{cli.nombre}</strong>
                                     <span style={{fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px'}}>
                                         {cli.codigo_expediente && <span style={{background: cli.codigo_expediente.includes('LEGACY') ? 'rgba(234, 88, 12, 0.1)' : 'rgba(2, 136, 209, 0.1)', color: cli.codigo_expediente.includes('LEGACY') ? '#ea580c' : '#0288d1', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold'}}><i className="fa-solid fa-folder-open"></i> {cli.codigo_expediente}</span>}
-                                        <span><i className="fa-solid fa-phone"></i> {cli.telefono || 'Sin teléfono'}</span>
+                                        <span><i className="fa-solid fa-phone"></i> {cli.telefono || t('sinTelefono')}</span>
                                     </span>
                                 </div>
                             ))}
@@ -965,7 +993,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                             </td>
                                         </tr>
                                     ))}
-                                    {filteredCatalog.length === 0 && <tr><td colSpan="6" style={{textAlign: 'center', padding: '50px', color: 'var(--text-muted)'}}><i className="fa-solid fa-box-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> No se encontró el insumo.</td></tr>}
+                                    {filteredCatalog.length === 0 && <tr><td colSpan="6" style={{textAlign: 'center', padding: '50px', color: 'var(--text-muted)'}}><i className="fa-solid fa-box-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos')}</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -980,12 +1008,12 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         <h3 style={{marginBottom: '25px', color: 'var(--text-main)', fontSize: '1.4rem', textAlign: 'center'}}><i className="fa-solid fa-user-plus" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('registrarPaciente')}</h3>
                         
                         <div style={{marginBottom: '15px'}}>
-                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('nombres') || 'Nombres'} *</label>
+                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('nombres')} *</label>
                             <input type="text" value={newClientNombres} onChange={(e) => setNewClientNombres(formatUpperCase(e.target.value))} placeholder="Ej. JOSE ADRIAN" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} autoFocus />
                         </div>
 
                         <div style={{marginBottom: '15px'}}>
-                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('apellidos') || 'Apellidos'} *</label>
+                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('apellidos')} *</label>
                             <input type="text" value={newClientApellidos} onChange={(e) => setNewClientApellidos(formatUpperCase(e.target.value))} placeholder="Ej. ESTRADA URIBE" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} />
                         </div>
                         
@@ -997,6 +1025,42 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         <div style={{display:'flex', gap:'15px'}}>
                             <button className="btn-action" style={{flex:1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 'bold'}} onClick={() => { setShowNewClientModal(false); scannerInputRef.current?.focus(); }}>{t('cancelar')}</button>
                             <button className="btn-primary" style={{flex:2, padding: '16px', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}} onClick={guardarClienteExpres}><i className="fa-solid fa-save"></i> {t('guardarSeleccionar')}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 🚀 MODAL DUPLICADO ENCONTRADO */}
+            {duplicateClientFound && (
+                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
+                    <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '40px', borderRadius: '16px', width: '450px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'center'}}>
+                        
+                        <div style={{width: '70px', height: '70px', borderRadius: '50%', background: 'rgba(2, 132, 199, 0.1)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto 20px auto'}}>
+                            <i className="fa-solid fa-user-check"></i>
+                        </div>
+                        
+                        <h3 style={{marginBottom: '15px', color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '900'}}>{t('pacienteYaRegistrado') || '¡Paciente ya registrado!'}</h3>
+                        <p style={{color: 'var(--text-muted)', fontSize: '0.95rem', marginBottom: '25px', lineHeight: '1.5'}}>
+                            {t('coincidenciaBaseDatos') || 'Se ha encontrado la siguiente coincidencia en nuestra base de datos:'}
+                        </p>
+                        
+                        <div style={{background: 'var(--bg-main)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '30px', textAlign: 'left'}}>
+                            <strong style={{display: 'block', fontSize: '1.1rem', color: 'var(--text-main)', marginBottom: '10px'}}>{duplicateClientFound.nombre}</strong>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-muted)', fontSize: '0.9rem'}}>
+                                {duplicateClientFound.codigo_expediente ? (
+                                    <span style={{background: duplicateClientFound.codigo_expediente.includes('LEGACY') ? 'rgba(234, 88, 12, 0.1)' : 'rgba(2, 136, 209, 0.1)', color: duplicateClientFound.codigo_expediente.includes('LEGACY') ? '#ea580c' : '#0288d1', padding: '4px 8px', borderRadius: '6px', fontWeight: 'bold'}}>
+                                        <i className="fa-solid fa-folder-open"></i> {duplicateClientFound.codigo_expediente}
+                                    </span>
+                                ) : (
+                                    <span style={{background: 'var(--bg-dark)', color: 'var(--text-muted)', padding: '4px 8px', borderRadius: '6px', fontWeight: 'bold'}}>S/E</span>
+                                )}
+                                <span><i className="fa-solid fa-phone" style={{marginRight: '5px'}}></i> {duplicateClientFound.telefono || t('sinTelefono')}</span>
+                            </div>
+                        </div>
+
+                        <div style={{display:'flex', gap:'15px'}}>
+                            <button className="btn-action" style={{flex:1, padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 'bold'}} onClick={() => { setDuplicateClientFound(null); setShowNewClientModal(true); }}>{t('cancelar')}</button>
+                            <button className="btn-primary" style={{flex:2, padding: '14px', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}} onClick={handleSelectDuplicate}><i className="fa-solid fa-check"></i> {t('seleccionarPacienteBtn') || 'Seleccionar Paciente'}</button>
                         </div>
                     </div>
                 </div>

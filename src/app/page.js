@@ -32,7 +32,7 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
 
-    // 🚀 ESTADOS PARA LA ALERTA INTELIGENTE DE FONDO
+    // 🚀 ESTADOS PARA EL BLOQUEO INTELIGENTE DE CAJA
     const [faltaFondo, setFaltaFondo] = useState(false);
     const [autoOpenFondo, setAutoOpenFondo] = useState(false);
 
@@ -71,7 +71,6 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                 setFaltaFondo(!tieneFondo);
             }
         };
-        // Se ejecuta al cargar y cada vez que cambian de pestaña (para ocultarse sola si ya lo pusieron)
         checkFondoDia();
     }, [branch, activeView]);
 
@@ -140,21 +139,6 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', zIndex: 1 }}>
                 
-                {/* 🚀 ALERTA FLOTANTE INTELIGENTE */}
-                {faltaFondo && activeView !== 'finanzas' && (
-                    <div 
-                        className="floating-alert animate-bounce-drop"
-                        onClick={() => { setActiveView('finanzas'); setAutoOpenFondo(true); }}
-                    >
-                        <div className="alert-icon pulse-warning"><i className="fa-solid fa-triangle-exclamation"></i></div>
-                        <div className="alert-content">
-                            <strong>¡Fondo de Caja Pendiente!</strong>
-                            <span>Haz clic aquí para declararlo y abrir el turno.</span>
-                        </div>
-                        <i className="fa-solid fa-chevron-right alert-arrow"></i>
-                    </div>
-                )}
-
                 <div style={{ 
                     padding: '15px 30px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
                     background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-color)', 
@@ -237,9 +221,61 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                     </div>
                 </div>
 
-                <div className="content-on-top" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
-                    {activeView === 'ventas' && <Ventas branch={branch} perfilActual={perfil} />}
-                    {/* 🚀 AQUÍ LE PASAMOS EL TRIGGER A FINANZAS */}
+                {/* 🚀 ÁREA DE CONTENIDO (CON BLOQUEO ESTRICTO DE VENTAS) */}
+                <div className="content-on-top" style={{ flex: 1, padding: '20px', overflowY: (faltaFondo && activeView === 'ventas') ? 'hidden' : 'auto', position: 'relative' }}>
+                    
+                    {/* 🚀 EL BLOQUEO: Solo aparece si no hay fondo y están intentando ver Ventas */}
+                    {faltaFondo && activeView === 'ventas' && (
+                        <div style={{
+                            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                            background: 'rgba(15, 17, 26, 0.65)', backdropFilter: 'blur(8px)',
+                            zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center',
+                            animation: 'fadeIn 0.4s ease-out'
+                        }}>
+                            <div className="animate-scale-in" style={{
+                                background: 'var(--bg-panel)', padding: '50px', borderRadius: '24px',
+                                border: '2px solid var(--primary-red)', boxShadow: '0 20px 60px rgba(211, 47, 47, 0.4)',
+                                textAlign: 'center', maxWidth: '500px', display: 'flex', flexDirection: 'column', alignItems: 'center'
+                            }}>
+                                <div style={{
+                                    width: '90px', height: '90px', borderRadius: '50%', background: 'rgba(211, 47, 47, 0.1)',
+                                    display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--primary-red)',
+                                    fontSize: '3rem', marginBottom: '25px', border: '2px solid var(--primary-red)',
+                                    animation: 'pulseWarning 2s infinite'
+                                }}>
+                                    <i className="fa-solid fa-lock"></i>
+                                </div>
+                                <h2 style={{color: 'var(--text-main)', fontSize: '2rem', marginBottom: '15px', fontWeight: '900', letterSpacing: '-0.5px', textTransform: 'uppercase'}}>Caja Bloqueada</h2>
+                                <p style={{color: 'var(--text-muted)', fontSize: '1.05rem', lineHeight: '1.6', marginBottom: '35px'}}>
+                                    Para comenzar a registrar operaciones, es obligatorio declarar primero el <strong>Fondo de Caja</strong> inicial de este turno.
+                                </p>
+                                <button 
+                                    className="btn-primary" 
+                                    onClick={() => { setActiveView('finanzas'); setAutoOpenFondo(true); }}
+                                    style={{padding: '16px 35px', fontSize: '1.1rem', borderRadius: '12px', fontWeight: '900', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 8px 20px rgba(211, 47, 47, 0.4)', border: 'none', cursor: 'pointer', transition: 'all 0.3s'}}
+                                    onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                                    onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+                                >
+                                    <i className="fa-solid fa-piggy-bank"></i> Ir a Declarar Fondo
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 🚀 ENVOLTORIO CONDICIONAL PARA VENTAS */}
+                    {activeView === 'ventas' && (
+                        <div style={{ 
+                            height: '100%', 
+                            opacity: faltaFondo ? 0.3 : 1, 
+                            filter: faltaFondo ? 'blur(6px)' : 'none', 
+                            pointerEvents: faltaFondo ? 'none' : 'auto',
+                            transition: 'all 0.4s ease',
+                            userSelect: faltaFondo ? 'none' : 'auto'
+                        }}>
+                            <Ventas branch={branch} perfilActual={perfil} />
+                        </div>
+                    )}
+
                     {activeView === 'finanzas' && <Finanzas branch={branch} perfilActual={perfil} autoOpenFondo={autoOpenFondo} setAutoOpenFondo={setAutoOpenFondo} />}
                     {activeView === 'calendar' && <Calendar branch={branch} perfilActual={perfil} />}
                     {activeView === 'doctores' && <ConsumosMedicos branch={branch} />}
@@ -292,19 +328,11 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                 .sidebar-collapsed .nav-btn i { font-size: 1.3rem; margin: 0; }
                 .sidebar-collapsed .nav-label { opacity: 0; width: 0; margin-left: 0; transform: translateX(-10px); display: none; }
 
-                /* 🚀 ESTILOS DE LA ALERTA FLOTANTE */
-                .floating-alert { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #ef4444, #dc2626); color: white; padding: 12px 25px; border-radius: 50px; display: flex; align-items: center; gap: 15px; box-shadow: 0 10px 25px rgba(239, 68, 68, 0.4); cursor: pointer; z-index: 1000; transition: all 0.3s ease; }
-                .floating-alert:hover { box-shadow: 0 15px 35px rgba(239, 68, 68, 0.6); transform: translateX(-50%) scale(1.03); }
-                .alert-icon { background: rgba(255,255,255,0.2); width: 35px; height: 35px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 1.2rem; }
-                .pulse-warning { animation: pulseWarning 1.5s infinite; }
-                .alert-content { display: flex; flex-direction: column; }
-                .alert-content strong { font-size: 0.95rem; letter-spacing: 0.5px; }
-                .alert-content span { font-size: 0.75rem; opacity: 0.9; }
-                .alert-arrow { margin-left: 10px; font-size: 1.2rem; opacity: 0.7; }
-                
-                @keyframes pulseWarning { 0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); } }
-                .animate-bounce-drop { animation: bounceDrop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-                @keyframes bounceDrop { 0% { top: -100px; opacity: 0; } 100% { top: 30px; opacity: 1; } }
+                /* 🚀 ESTILOS PARA LA NUEVA ALERTA DE BLOQUEO */
+                @keyframes pulseWarning { 0% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(211, 47, 47, 0); } 100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0); } }
+                .animate-scale-in { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+                @keyframes scaleIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
             `}</style>
         </div>
     );
@@ -339,14 +367,12 @@ export default function Home() {
         if (data) {
             setPerfil(data);
             
-            // 🚀 LÓGICA DE MEMORIA INTELIGENTE
-            // 1. Buscamos si la computadora ya se acordaba de la sucursal
+            // LÓGICA DE MEMORIA INTELIGENTE
             const savedBranch = localStorage.getItem('hk_branch_memory');
             
             if (savedBranch) {
                 setBranch(savedBranch);
             } else if (data.sucursal_id) {
-                // 2. Si es computadora nueva, jalamos la sucursal asignada a su perfil en Supabase
                 const branchMapReverse = { 1: 'napoles', 2: 'obrera', 3: 'pedregal' };
                 const defaultBranch = branchMapReverse[data.sucursal_id] || 'napoles';
                 setBranch(defaultBranch);
@@ -356,7 +382,6 @@ export default function Home() {
         setLoadingAuth(false);
     };
 
-    // 🚀 INTERCEPTOR: Cada vez que cambian de sucursal en el menú, lo guardamos en la memoria
     const handleSetBranch = (newBranch) => {
         setBranch(newBranch);
         localStorage.setItem('hk_branch_memory', newBranch);
@@ -374,7 +399,6 @@ export default function Home() {
 
     return (
         <LanguageProvider>
-            {/* 🚀 Pasamos nuestro interceptor en lugar del setBranch original */}
             <DashboardApp session={session} perfil={perfil} branch={branch} setBranch={handleSetBranch} />
         </LanguageProvider>
     );

@@ -46,6 +46,11 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     const [montoRetiroBoveda, setMontoRetiroBoveda] = useState('');
     const [motivoRetiroBoveda, setMotivoRetiroBoveda] = useState('');
     
+    // ESTADOS PARA EXPORTAR BÓVEDA CON PERIODO
+    const [showExportBovedaModal, setShowExportBovedaModal] = useState(false);
+    const [exportBovedaStartDate, setExportBovedaStartDate] = useState('');
+    const [exportBovedaEndDate, setExportBovedaEndDate] = useState('');
+
     const [rawVentas, setRawVentas] = useState([]);
     const [doctoresCatalog, setDoctoresCatalog] = useState([]);
 
@@ -73,7 +78,15 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         setIsMounted(true);
         const today = new Date().toISOString().split('T')[0];
         const firstDay = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-        setSingleDate(today); setStartDate(firstDay); setEndDate(today); setFechaTurno(today); 
+        
+        setSingleDate(today); 
+        setStartDate(firstDay); 
+        setEndDate(today); 
+        setFechaTurno(today); 
+        
+        // Inicializar fechas de la boveda por defecto (mes actual)
+        setExportBovedaStartDate(firstDay);
+        setExportBovedaEndDate(today);
     }, []);
 
     const extraerValoresMixtos = (pagoString, importeDetalle, totalVentaOriginal) => {
@@ -148,9 +161,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                     const nombreArticulo = det.productos?.nombre || 'Art. Eliminado';
                     const nombreLower = nombreArticulo.toLowerCase();
                     
-                    // 🚀 NUEVA REGLA ESTRICTA DE AGRUPACIÓN:
-                    // SOLO es consulta si tiene el flag "es_consulta" activado, o si se llama literalmente "consulta".
-                    // Todo lo demás (escáner, servicios complementarios, agujas) se va a Huanqiu (Extras).
                     const esConsultaOficial = det.productos?.es_consulta === true || nombreLower.includes('consulta'); 
                     
                     let valoresMixtos = { efectivo: 0, tarjeta: 0, transferencia: 0 };
@@ -164,7 +174,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         mixtosConsultas.transferencia += valoresMixtos.transferencia;
                         numVisitasReales += cant;
                     } else {
-                        // Todos los productos físicos y servicios no marcados como consulta van aquí
                         arrProductos.push({ folio: v.id, fecha: parseDBDate(v.fecha).toLocaleString(), sucursal: sucursalNombre, cliente: clienteNombre, articulo: nombreArticulo, cantidad: cant, precio: precio, importe: importeDetalle, metodo_pago: pago, esMixto, valoresMixtos });
                     }
                 });
@@ -240,7 +249,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     const breakdownB = desglosarVentas(productosFiltrados);
     const breakdownTotal = { total: breakdownA.total + breakdownB.total, efectivo: breakdownA.efectivo + breakdownB.efectivo, tarjeta: breakdownA.tarjeta + breakdownB.tarjeta, transferencia: breakdownA.transferencia + breakdownB.transferencia };
 
-    // CÁLCULOS DE CAJA CHICA (Para el ticket)
     let cFondo = 0, cVentas = 0, cEntradas = 0, cSalidas = 0;
     let movimientosTurnoVirtual = [];
     const idxLastCorte = cajaFiltrada.findIndex(m => m.tipo === 'corte_caja');
@@ -452,33 +460,130 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         }
     };
 
-    const exportarExcelBoveda = () => {
-        if (bovedaFiltrada.length === 0) return alert('No hay movimientos de bóveda para exportar.');
+    // 🚀 LÓGICA DE EXPORTACIÓN CON FORMATO PREMIUM Y SALDO ACUMULADO PARA BÓVEDA
+    const handleExportBovedaConfirm = async () => {
+        if (!exportBovedaStartDate || !exportBovedaEndDate) return alert('Selecciona las fechas de inicio y fin para el reporte.');
         
-        let htmlTable = `
-            <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-            <head><meta charset="UTF-8"><style>table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; } th, td { border: 1px solid #dddddd; padding: 10px; text-align: left; } th { background-color: #475569; color: white; font-weight: bold; } .header { font-size: 20px; font-weight: bold; color: #ffffff; background-color: #1e293b; text-align: center; } .saldo { font-size: 18px; font-weight: bold; color: #1e293b; text-align: right; } </style></head>
-            <body>
-                <table>
-                    <tr><td colspan="4" class="header">REPORTE CAJA FUERTE (BÓVEDA) - ACUPUNTURA HK (${branch.toUpperCase()})</td></tr>
-                    <tr><td colspan="4" style="text-align:center; font-weight: bold; background-color: #f8fafc;">Período: ${dateMode === 'diario' ? singleDate : startDate + ' al ' + endDate}</td></tr>
-                    <tr><td colspan="4" class="saldo">SALDO ACTUAL RESGUARDADO: $${saldoBoveda.toFixed(2)}</td></tr>
-                    <tr><td colspan="4"></td></tr>
-                    <tr><th>Fecha y Hora</th><th>Tipo de Movimiento</th><th>Motivo / Descripción</th><th>Importe</th></tr>
-        `;
+        const btn = document.getElementById('btn-export-boveda');
+        if(btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando...'; btn.disabled = true; }
 
-        bovedaFiltrada.forEach(m => {
-            const dateStr = parseDBDate(m.fecha).toLocaleString();
-            const tipoLimpio = m.tipo.replace('_', ' ').toUpperCase();
-            htmlTable += `<tr><td>${dateStr}</td><td>${tipoLimpio}</td><td>${m.motivo}</td><td style="text-align: right;">${m.monto > 0 ? '+' : ''}$${parseFloat(m.monto).toFixed(2)}</td></tr>`;
-        });
+        try {
+            const start = `${exportBovedaStartDate}T00:00:00`;
+            const end = `${exportBovedaEndDate}T23:59:59`;
 
-        htmlTable += `</table></body></html>`;
-        const blob = new Blob([htmlTable], { type: 'application/vnd.ms-excel' });
-        const link = document.createElement("a");
-        link.setAttribute("href", URL.createObjectURL(blob));
-        link.setAttribute("download", `Reporte_Boveda_${branch.toUpperCase()}_${dateMode === 'diario' ? singleDate : startDate}.xls`);
-        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            // 1. Obtener el saldo inicial (la suma de la bóveda antes del periodo seleccionado)
+            const { data: previousData, error: errPrev } = await supabase
+                .from('movimientos_boveda')
+                .select('monto')
+                .eq('sucursal_id', sucursalId)
+                .lt('fecha', start);
+                
+            let saldoAcumulado = 0;
+            if (previousData) {
+                saldoAcumulado = previousData.reduce((acc, curr) => acc + parseFloat(curr.monto), 0);
+            }
+
+            // 2. Obtener movimientos del periodo (Orden ascendente)
+            const { data: periodData, error: errPeriod } = await supabase
+                .from('movimientos_boveda')
+                .select('*')
+                .eq('sucursal_id', sucursalId)
+                .gte('fecha', start)
+                .lte('fecha', end)
+                .order('fecha', { ascending: true }); 
+
+            if (errPeriod) throw errPeriod;
+
+            // Formateador de moneda en Excel
+            const formatMoney = (val) => {
+                if (val === null || val === undefined || val === '') return '';
+                return '$ ' + parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            };
+
+            const d1 = new Date(start);
+            const d2 = new Date(end);
+            const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+            const periodoText = `período de ${d1.getDate()} al ${d2.getDate()} de ${months[d2.getMonth()]} ${d2.getFullYear()}`;
+
+            let htmlTable = `
+                <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; } 
+                        th, td { border: 1px solid #dddddd; padding: 10px; text-align: left; vertical-align: middle; font-size: 14px; } 
+                        th { background-color: #f2f2f2; font-weight: bold; color: #333; }
+                        .header { font-size: 20px; font-weight: bold; color: #ffffff; background-color: #1e293b; text-align: center; } 
+                        .subheader { text-align: center; font-weight: bold; background-color: #f8fafc; color: #333; font-size: 16px; }
+                        .money { text-align: right; font-weight: bold; }
+                    </style>
+                </head>
+                <body>
+                    <table>
+                        <tr><td colspan="6" class="header">REPORTE CAJA FUERTE (BÓVEDA) - ACUPUNTURA HK (${branch.toUpperCase()})</td></tr>
+                        <tr><td colspan="6" class="subheader">${periodoText.toUpperCase()}</td></tr>
+                        <tr><td colspan="6"></td></tr>
+                        <tr>
+                            <th style="width: 160px; text-align: center;">Fecha y Hora</th>
+                            <th style="width: 180px;">Tipo de Movimiento</th>
+                            <th style="width: 350px;">Motivo / Detalles</th>
+                            <th style="width: 150px; text-align: right;">Entrada (Ingresos)</th>
+                            <th style="width: 150px; text-align: right;">Salida (Retiros)</th>
+                            <th style="width: 160px; text-align: right;">Saldo Acumulado</th>
+                        </tr>
+                        <tr style="background-color: #f1f5f9;">
+                            <td colspan="3" style="text-align: right; font-weight: bold; color: #475569;">SALDO INICIAL AL PERÍODO:</td>
+                            <td></td>
+                            <td></td>
+                            <td class="money" style="color: #0f172a; font-size: 16px;">${formatMoney(saldoAcumulado)}</td>
+                        </tr>
+            `;
+
+            periodData.forEach(m => {
+                const dateObj = parseDBDate(m.fecha);
+                const dateStr = dateObj.toLocaleString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+                
+                let tipoLimpio = '';
+                if (m.tipo === 'ingreso_corte') tipoLimpio = 'Corte Recibido';
+                else if (m.tipo === 'retiro_duenos') tipoLimpio = 'Retiro';
+                else tipoLimpio = m.tipo.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+                const monto = parseFloat(m.monto);
+                saldoAcumulado += monto;
+                
+                const entrada = monto > 0 ? formatMoney(monto) : '';
+                const salida = monto < 0 ? formatMoney(Math.abs(monto)) : '';
+                
+                const inColor = monto > 0 ? 'color: #10b981;' : '';
+                const outColor = monto < 0 ? 'color: #ef4444;' : '';
+
+                htmlTable += `
+                    <tr>
+                        <td style="font-weight: bold; color: #475569; text-align: center;">${dateStr}</td>
+                        <td style="font-weight: bold;">${tipoLimpio}</td>
+                        <td style="color: #333;">${m.motivo}</td>
+                        <td class="money" style="${inColor}">${entrada}</td>
+                        <td class="money" style="${outColor}">${salida}</td>
+                        <td class="money" style="color: #0f172a;">${formatMoney(saldoAcumulado)}</td>
+                    </tr>
+                `;
+            });
+
+            htmlTable += `</table></body></html>`;
+            
+            const blob = new Blob([htmlTable], { type: 'application/vnd.ms-excel' });
+            const link = document.createElement("a");
+            link.setAttribute("href", URL.createObjectURL(blob));
+            link.setAttribute("download", `Reporte_Boveda_${branch.toUpperCase()}_${exportBovedaStartDate}.xls`);
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+
+            setShowExportBovedaModal(false);
+        } catch(e) {
+            alert('Error al generar el reporte: ' + e.message);
+        } finally {
+            const btn = document.getElementById('btn-export-boveda');
+            if(btn) { btn.innerHTML = '<i class="fa-solid fa-download"></i> Generar Reporte'; btn.disabled = false; }
+        }
     };
 
     const exportarExcelPremium = () => {
@@ -633,14 +738,19 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
             sucursalesStats[v.sucursal_id].total += parseFloat(v.total);
             sucursalesStats[v.sucursal_id].tickets.add(v.id);
             
+            const isClinical = v.venta_detalles?.some(det => det.productos?.es_consulta === true);
+            
             v.venta_detalles?.forEach(det => {
+                const tipo = det.productos?.tipo || 'producto';
                 const nom = (det.productos?.nombre || '').toLowerCase();
                 
-                // 🚀 REGLA DE ORO ESTRICTA:
-                const esConsultaOficial = det.productos?.es_consulta === true || nom.includes('consulta');
+                const esEscaner = nom.includes('escaner') || nom.includes('escáner');
+                const esComplemento = nom.includes('complementario');
                 
-                if (esConsultaOficial) {
-                    sucursalesStats[v.sucursal_id].consultas += det.cantidad;
+                if (isClinical && tipo === 'servicio' && !esEscaner) {
+                    if((nom.includes('consulta') || det.productos?.es_consulta) && !esComplemento) {
+                        sucursalesStats[v.sucursal_id].consultas += det.cantidad;
+                    }
                 } else {
                     sucursalesStats[v.sucursal_id].productos += det.cantidad;
                 }
@@ -661,24 +771,26 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         if (!doctoresStats[docId]) doctoresStats[docId] = { nombre: doctoresCatalog.find(d => d.id === docId)?.nombre || 'Desconocido', ingresos: 0, consultas: 0, pacientes: {} };
         
         let subtotalDoc = 0; let consultasDoc = 0;
+        const isClinical = v.venta_detalles?.some(det => det.productos?.es_consulta === true);
         
         v.venta_detalles?.forEach(det => {
+            const tipo = det.productos?.tipo || 'producto';
             const nom = (det.productos?.nombre || '').toLowerCase();
             
-            // 🚀 REGLA DE ORO ESTRICTA:
-            const esConsultaOficial = det.productos?.es_consulta === true || nom.includes('consulta');
+            const esEscaner = nom.includes('escaner') || nom.includes('escáner');
+            const esComplemento = nom.includes('complementario');
             
-            if (esConsultaOficial) {
+            if (isClinical && tipo === 'servicio' && !esEscaner) {
                 subtotalDoc += (det.cantidad * det.precio_unitario);
-                consultasDoc += det.cantidad;
+                if((nom.includes('consulta') || det.productos?.es_consulta) && !esComplemento) {
+                    consultasDoc += det.cantidad;
+                }
             }
         });
 
-        if (subtotalDoc > 0 || consultasDoc > 0) {
-            doctoresStats[docId].ingresos += subtotalDoc;
-            doctoresStats[docId].consultas += consultasDoc;
-            if (v.clientes?.nombre) doctoresStats[docId].pacientes[v.clientes.nombre] = (doctoresStats[docId].pacientes[v.clientes.nombre] || 0) + 1;
-        }
+        doctoresStats[docId].ingresos += subtotalDoc;
+        doctoresStats[docId].consultas += consultasDoc;
+        if (v.clientes?.nombre) doctoresStats[docId].pacientes[v.clientes.nombre] = (doctoresStats[docId].pacientes[v.clientes.nombre] || 0) + 1;
     });
 
     const chartDataDoctores = Object.values(doctoresStats).map(d => ({
@@ -1163,7 +1275,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                                     </div>
                                     {perfilActual?.rol === 'admin' && (
                                         <div style={{display: 'flex', gap: '15px'}}>
-                                            <button onClick={exportarExcelBoveda} className="btn-action" style={{padding: '15px 20px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#10b981', borderRadius: '12px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: '0.3s'}} onMouseEnter={e=>{e.currentTarget.style.background='#10b981'; e.currentTarget.style.color='white'}} onMouseLeave={e=>{e.currentTarget.style.background='rgba(16, 185, 129, 0.15)'; e.currentTarget.style.color='#10b981'}}>
+                                            <button onClick={() => setShowExportBovedaModal(true)} className="btn-action" style={{padding: '15px 20px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#10b981', borderRadius: '12px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', transition: '0.3s'}} onMouseEnter={e=>{e.currentTarget.style.background='#10b981'; e.currentTarget.style.color='white'}} onMouseLeave={e=>{e.currentTarget.style.background='rgba(16, 185, 129, 0.15)'; e.currentTarget.style.color='#10b981'}}>
                                                 <i className="fa-solid fa-file-excel"></i> Exportar
                                             </button>
                                             <button onClick={() => setShowRetiroBovedaModal(true)} className="btn-primary" style={{padding: '15px 30px', background: '#475569', border: 'none', borderRadius: '12px', color: 'white', fontWeight: 'bold', fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 8px 20px rgba(0,0,0,0.4)', transition: '0.3s'}} onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'} onMouseLeave={e=>e.currentTarget.style.transform='translateY(0)'}>
@@ -1203,6 +1315,35 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
             )}
 
             {/* MODALES FLOTANTES */}
+            
+            {/* 🚀 MODAL DE RANGO DE FECHAS PARA EXPORTACIÓN EXCEL BÓVEDA */}
+            {showExportBovedaModal && (
+                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
+                    <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '450px', border: '1px solid #10b981', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', textAlign: 'left', overflow: 'hidden'}}>
+                        <div style={{background: 'var(--bg-main)', padding: '25px 30px', borderBottom: '1px solid var(--border-color)', textAlign: 'center'}}>
+                            <h3 style={{margin: 0, color: '#10b981', fontSize: '1.4rem', fontWeight: '900'}}><i className="fa-solid fa-file-excel" style={{marginRight: '10px'}}></i> Exportar Reporte Bóveda</h3>
+                        </div>
+                        <div style={{padding: '30px'}}>
+                            <p style={{color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '20px', textAlign: 'center'}}>Selecciona el periodo que deseas exportar.</p>
+                            <div style={{display: 'flex', gap: '15px', marginBottom: '10px'}}>
+                                <div style={{flex: 1}}>
+                                    <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>Desde</label>
+                                    <input type="date" value={exportBovedaStartDate} onChange={e => setExportBovedaStartDate(e.target.value)} style={{width:'100%', padding:'12px', background:'var(--bg-main)', color:'var(--text-main)', border:'1px solid var(--border-color)', borderRadius:'10px', outline:'none'}} />
+                                </div>
+                                <div style={{flex: 1}}>
+                                    <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>Hasta</label>
+                                    <input type="date" value={exportBovedaEndDate} onChange={e => setExportBovedaEndDate(e.target.value)} style={{width:'100%', padding:'12px', background:'var(--bg-main)', color:'var(--text-main)', border:'1px solid var(--border-color)', borderRadius:'10px', outline:'none'}} />
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{padding: '20px 30px', background: 'var(--bg-main)', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '15px'}}>
+                            <button className="btn-action" style={{flex:1, padding: '16px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem'}} onClick={() => setShowExportBovedaModal(false)}>Cancelar</button>
+                            <button id="btn-export-boveda" className="btn-primary" style={{flex:2, padding: '16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: 'pointer', boxShadow: '0 5px 15px rgba(16, 185, 129, 0.3)'}} onClick={handleExportBovedaConfirm}><i className="fa-solid fa-download"></i> Generar Reporte</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {shiftToView && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box animate-scale-in" style={{background: 'var(--bg-panel)', padding: '0', borderRadius: '24px', width: '600px', border: '1px solid var(--border-color)', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden'}}>
