@@ -19,7 +19,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         return new Date(dateString).toLocaleDateString();
     };
 
-    // 🚀 NUEVA FUNCIÓN: CALCULAR EDAD EXACTA
+    // 🚀 FUNCIÓN: CALCULAR EDAD EXACTA
     const calcularEdad = (fechaNacimiento) => {
         if (!fechaNacimiento) return '';
         const hoy = new Date();
@@ -29,7 +29,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         if (m < 0 || (m === 0 && hoy.getDate() < nacimiento.getDate())) {
             edad--;
         }
-        return `${edad} ${t('anos') || 'años'}`;
+        return `${edad} ${t('edadAnos') || 'años'}`;
     };
 
     const [pacientes, setPacientes] = useState([]);
@@ -658,16 +658,23 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                         {/* CABECERA DEL PACIENTE */}
                         <div style={{padding: '25px 30px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-panel)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0}}>
                             <div>
-                                <h1 style={{margin: '0 0 5px 0', color: 'var(--text-main)', fontSize: '1.6rem'}}>{pacienteSeleccionado.nombre}</h1>
-                                <span style={{color: 'var(--text-muted)', fontSize: '0.9rem'}}>
-                                    {/* 🚀 AÑADIDA EDAD EXACTA JUNTO AL SEXO */}
-                                    <i className="fa-solid fa-person-half-dress" style={{marginRight: '5px'}}></i> {t(pacienteSeleccionado.sexo?.toLowerCase()) || pacienteSeleccionado.sexo} ({calcularEdad(pacienteSeleccionado.fecha_nacimiento)})
-                                    <span style={{margin: '0 10px', opacity: 0.3}}>|</span> 
-                                    <i className="fa-regular fa-id-card" style={{marginRight: '5px'}}></i> {pacienteSeleccionado.curp || t('sinCurp')} <span style={{margin: '0 10px', opacity: 0.3}}>|</span> 
+                                <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '8px'}}>
+                                    <h1 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.8rem'}}>{pacienteSeleccionado.nombre}</h1>
+                                    <span style={{color: 'var(--text-muted)', fontSize: '1.25rem', fontWeight: '500', display: 'flex', alignItems: 'center'}}>
+                                        <span style={{color: 'var(--border-color)', marginRight: '12px'}}>|</span>
+                                        <i className="fa-solid fa-person-half-dress" style={{marginRight: '8px', color: 'var(--accent)'}}></i> 
+                                        {t(pacienteSeleccionado.sexo?.toLowerCase()) || pacienteSeleccionado.sexo} ({calcularEdad(pacienteSeleccionado.fecha_nacimiento)})
+                                    </span>
+                                </div>
+                                <div style={{color: 'var(--text-muted)', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                    <span><i className="fa-regular fa-id-card" style={{marginRight: '5px'}}></i> {pacienteSeleccionado.curp || t('sinCurp')}</span>
                                     {pacienteSeleccionado.codigo_expediente && (
-                                        <span style={{background: pacienteSeleccionado.codigo_expediente.includes('LEGACY') ? 'rgba(234, 88, 12, 0.1)' : 'rgba(2, 132, 199, 0.1)', color: pacienteSeleccionado.codigo_expediente.includes('LEGACY') ? '#ea580c' : 'var(--accent)', padding: '3px 8px', borderRadius: '4px', fontWeight: 'bold'}}>{pacienteSeleccionado.codigo_expediente}</span>
+                                        <>
+                                            <span style={{color: 'var(--border-color)'}}>|</span> 
+                                            <span style={{background: pacienteSeleccionado.codigo_expediente.includes('LEGACY') ? 'rgba(234, 88, 12, 0.1)' : 'rgba(2, 132, 199, 0.1)', color: pacienteSeleccionado.codigo_expediente.includes('LEGACY') ? '#ea580c' : 'var(--accent)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold'}}>{pacienteSeleccionado.codigo_expediente}</span>
+                                        </>
                                     )}
-                                </span>
+                                </div>
                             </div>
                             <div style={{display: 'flex', gap: '15px', alignItems: 'center'}}>
                                 <button onClick={(e) => { e.stopPropagation(); setShowReferenciaModal(true); }} className="btn-action" style={{background: 'rgba(234, 88, 12, 0.1)', color: '#ea580c', border: '1px solid rgba(234, 88, 12, 0.3)', padding: '12px', borderRadius: '8px'}} title={t('hojaReferencia')}>
@@ -688,40 +695,38 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
                         <div style={{flex: 1, overflowY: 'hidden', display: 'flex', flexDirection: 'column', background: 'var(--bg-main)'}}>
                             
-                            {/* PESTAÑA 1: HISTORIA CLÍNICA (CON WIZARD MÉDICO) */}
+                            {/* PESTAÑA 1: HISTORIA CLÍNICA */}
                             {tabActiva === 'historia' && (
                                 <>
                                     {historia?.estado === 'firmada' ? (
-                                        // VISTA DE LECTURA (FIRMADA)
                                         <div style={{padding: '30px', overflowY: 'auto', flex: 1}}>
                                             <div style={{maxWidth: '900px', margin: '0 auto', background: 'var(--bg-panel)', padding: '35px', borderRadius: '16px', border: '1px solid var(--success)', boxShadow: '0 10px 30px rgba(22, 163, 74, 0.1)'}}>
                                                 <div style={{background: 'rgba(22, 163, 74, 0.05)', padding: '20px', borderRadius: '12px', marginBottom: '30px', textAlign: 'center', border: '1px dashed var(--success)', color: 'var(--success)'}}>
                                                     <i className="fa-solid fa-lock fa-2x" style={{marginBottom: '10px'}}></i>
                                                     <h3 style={{margin: '0 0 5px 0'}}>{t('expedienteFirmado')}</h3>
-                                                    <p style={{margin: 0, fontSize: '0.85rem'}}>{t('por')} {historia.medico_nombre} {t('el')} {formatDate(historia.fecha_firma)}</p>
-                                                    <span style={{fontSize: '0.7rem', fontFamily: 'monospace', opacity: 0.6}}>HASH: {historia.firma_hash}</span>
+                                                    <p style={{margin: 0, fontSize: '0.95rem'}}>{t('por')} {historia.medico_nombre} {t('el')} {formatDate(historia.fecha_firma)}</p>
+                                                    <span style={{fontSize: '0.8rem', fontFamily: 'monospace', opacity: 0.6}}>HASH: {historia.firma_hash}</span>
                                                 </div>
                                                 
-                                                <h4 style={{color: 'var(--accent)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px'}}><i className="fa-solid fa-clipboard-question"></i> {t('interrogatorio')}</h4>
+                                                <h4 style={{color: 'var(--accent)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', fontSize: '1.2rem'}}><i className="fa-solid fa-clipboard-question"></i> {t('interrogatorio')}</h4>
                                                 <div className="read-box"><span className="label">{t('motivoConsulta')}</span> {historia.motivo_consulta || '-'}</div>
                                                 <div className="read-box"><span className="label">{t('padecimientoActual')}</span> {historia.padecimiento_actual || '-'}</div>
                                                 
-                                                <h4 style={{color: 'var(--accent)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginTop: '30px'}}><i className="fa-solid fa-clock-rotate-left"></i> {t('antecedentesHabitos')}</h4>
+                                                <h4 style={{color: 'var(--accent)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginTop: '30px', fontSize: '1.2rem'}}><i className="fa-solid fa-clock-rotate-left"></i> {t('antecedentesHabitos')}</h4>
                                                 <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px'}}>
                                                     <div className="read-box"><span className="label">{t('aFamiliares')}</span> {historia.antecedentes_familiares || '-'}</div>
                                                     <div className="read-box"><span className="label">{t('aPersonales')}</span> {historia.antecedentes_personales || '-'}</div>
                                                 </div>
 
-                                                <h4 style={{color: '#ffb300', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginTop: '30px'}}><i className="fa-solid fa-yin-yang"></i> {t('diagnosticoMtc')}</h4>
-                                                <div className="read-box" style={{background: 'rgba(255, 179, 0, 0.05)', borderColor: 'rgba(255, 179, 0, 0.2)'}}><span className="label" style={{color: '#d97706'}}>{t('pulsoYLengua')}:</span> <pre style={{fontFamily: 'inherit', margin: 0, whiteSpace: 'pre-wrap'}}>{historia.mtc_pulso_lengua || '-'}</pre></div>
+                                                <h4 style={{color: '#ffb300', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginTop: '30px', fontSize: '1.2rem'}}><i className="fa-solid fa-yin-yang"></i> {t('diagnosticoMtc')}</h4>
+                                                <div className="read-box" style={{background: 'rgba(255, 179, 0, 0.05)', borderColor: 'rgba(255, 179, 0, 0.2)'}}><span className="label" style={{color: '#d97706'}}>{t('pulsoYLengua')}:</span> <pre style={{fontFamily: 'inherit', margin: 0, whiteSpace: 'pre-wrap', fontSize: '1.05rem'}}>{historia.mtc_pulso_lengua || '-'}</pre></div>
 
-                                                <h4 style={{color: 'var(--success)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginTop: '30px'}}><i className="fa-solid fa-stethoscope"></i> {t('conclusionPlan')}</h4>
+                                                <h4 style={{color: 'var(--success)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginTop: '30px', fontSize: '1.2rem'}}><i className="fa-solid fa-stethoscope"></i> {t('conclusionPlan')}</h4>
                                                 <div className="read-box"><span className="label">{t('diagnosticoCie')}:</span> {historia.diagnostico_cie || '-'}</div>
                                                 <div className="read-box"><span className="label">{t('planTratamiento')}:</span> {historia.plan_tratamiento || '-'}</div>
                                             </div>
                                         </div>
                                     ) : (
-                                        // WIZARD DE EDICIÓN CLÍNICA
                                         <div className="wizard-container" style={{height: '100%', borderRadius: 0, border: 'none', boxShadow: 'none'}} onClick={(e) => e.stopPropagation()}>
                                             <div className="wizard-body">
                                                 
@@ -795,7 +800,6 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                         </div>
                                                     )}
 
-                                                    {/* 🚀 EL CORAZÓN DE LA MTCh: MATRICES RESPONSIVE */}
                                                     {formStep === 3 && (
                                                         <div className="step-pane animate-fade-in" style={{maxWidth: '1000px'}}>
                                                             <h3 className="pane-title"><i className="fa-solid fa-yin-yang" style={{color: '#ffb300', marginRight: '10px'}}></i> {t('exploracionFisicaMtc')}</h3>
@@ -808,7 +812,6 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                             </div>
 
                                                             <div style={{display: 'flex', flexDirection: 'column', gap: '30px', marginBottom: '20px'}}>
-                                                                {/* MATRIZ DE PULSO 100% */}
                                                                 <div style={{background: 'var(--bg-main)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '25px', boxShadow: 'var(--shadow-sm)'}}>
                                                                     <h4 style={{color: 'var(--text-main)', margin: '0 0 20px 0', fontSize: '1.1rem', display: 'flex', alignItems: 'center'}}>
                                                                         <i className="fa-solid fa-heart-pulse" style={{color: 'var(--primary-red)', marginRight: '10px', fontSize: '1.3rem'}}></i> {t('matrizPulso')}
@@ -843,7 +846,6 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                                     </div>
                                                                 </div>
 
-                                                                {/* MATRIZ DE LENGUA 100% */}
                                                                 <div style={{background: 'var(--bg-main)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '25px', boxShadow: 'var(--shadow-sm)'}}>
                                                                     <h4 style={{color: 'var(--text-main)', margin: '0 0 20px 0', fontSize: '1.1rem', display: 'flex', alignItems: 'center'}}>
                                                                         <i className="fa-solid fa-magnifying-glass-chart" style={{color: '#ffb300', marginRight: '10px', fontSize: '1.3rem'}}></i> {t('matrizLengua')}
@@ -879,7 +881,6 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                                 </div>
                                                             </div>
 
-                                                            {/* REDACCIÓN AUTOMÁTICA */}
                                                             <div style={{background: 'rgba(255, 179, 0, 0.05)', border: '1px dashed #ffb300', borderRadius: '12px', padding: '25px', display: 'flex', flexDirection: 'column'}}>
                                                                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
                                                                     <label style={{fontWeight: 'bold', color: '#d97706', margin: 0, fontSize: '1.1rem'}}><i className="fa-solid fa-pen-nib"></i> {t('resultadosDiagnosticoMtc')}</label>
@@ -1093,7 +1094,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                         <div style={{background: 'var(--bg-panel)', padding: '40px 60px', borderRadius: '16px', textAlign: 'center', border: '1px dashed var(--border-color)', boxShadow: 'var(--shadow-sm)'}}>
                             <i className="fa-solid fa-user-doctor fa-4x" style={{marginBottom: '25px', opacity: 0.3, color: 'var(--accent)'}}></i>
                             <h2 style={{color: 'var(--text-main)', marginBottom: '10px'}}>{t('escritorioClinico')}</h2>
-                            <p style={{fontSize: '0.95rem'}}>{t('seleccionaPacienteDirectorio')}</p>
+                            <p style={{fontSize: '1.05rem'}}>{t('seleccionaPacienteDirectorio')}</p>
                         </div>
                     </div>
                 )}
@@ -1103,26 +1104,26 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
             {showNewPatientModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '40px', borderRadius: '16px', width: '500px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-lg)', textAlign: 'left'}}>
-                        <h3 style={{marginBottom: '10px', color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-user-plus" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('altaRapida')}</h3>
-                        <p style={{fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '30px'}}>{t('camposMinimosRequeridos')}</p>
+                        <h3 style={{marginBottom: '10px', color: 'var(--text-main)', fontSize: '1.5rem'}}><i className="fa-solid fa-user-plus" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('altaRapida')}</h3>
+                        <p style={{fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '30px'}}>{t('camposMinimosRequeridos')}</p>
                         
                         <div style={{display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '35px'}}>
                             <div>
-                                <label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('nombres')}</label>
+                                <label style={{display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('nombres')}</label>
                                 <input type="text" value={npNombres} onChange={e => setNpNombres(formatUpperCase(e.target.value))} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', textTransform: 'uppercase'}} autoFocus />
                             </div>
                             <div>
-                                <label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('apellidos')}</label>
+                                <label style={{display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('apellidos')}</label>
                                 <input type="text" value={npApellidos} onChange={e => setNpApellidos(formatUpperCase(e.target.value))} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', textTransform: 'uppercase'}} />
                             </div>
                             <div>
-                                <label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('telefono')}</label>
+                                <label style={{display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('telefono')}</label>
                                 <input type="text" value={npTelefono} onChange={e => setNpTelefono(e.target.value)} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px'}} />
                             </div>
                             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
-                                <div><label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('fechaNac')}</label><input type="date" value={npFechaNacimiento} onChange={e => setNpFechaNacimiento(e.target.value)} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer'}} /></div>
+                                <div><label style={{display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('fechaNac')}</label><input type="date" value={npFechaNacimiento} onChange={e => setNpFechaNacimiento(e.target.value)} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer'}} /></div>
                                 <div>
-                                    <label style={{display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('sexo')}</label>
+                                    <label style={{display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('sexo')}</label>
                                     <select value={npSexo} onChange={e => setNpSexo(e.target.value)} style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer'}}>
                                         <option value="">{t('seleccionar')}</option>
                                         <option value="Femenino">{t('femenino')}</option>
@@ -1145,12 +1146,12 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
             {showReferenciaModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '40px', borderRadius: '16px', width: '550px', border: '1px solid rgba(234, 88, 12, 0.5)', boxShadow: '0 10px 30px rgba(234, 88, 12, 0.15)', textAlign: 'left'}}>
-                        <h3 style={{marginBottom: '10px', color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-truck-medical" style={{color: '#ea580c', marginRight: '10px'}}></i> {t('generarHojaReferencia')}</h3>
-                        <p style={{fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '30px'}}>{t('documentoOficialTraslado')}</p>
+                        <h3 style={{marginBottom: '10px', color: 'var(--text-main)', fontSize: '1.5rem'}}><i className="fa-solid fa-truck-medical" style={{color: '#ea580c', marginRight: '10px'}}></i> {t('generarHojaReferencia')}</h3>
+                        <p style={{fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '30px'}}>{t('documentoOficialTraslado')}</p>
                         <div style={{display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '35px'}}>
-                            <div><label style={{display: 'block', fontSize: '0.85rem', color: '#ea580c', marginBottom: '8px', fontWeight: 'bold'}}>{t('hospitalReceptor')}</label><input type="text" value={rForm.receptor} onChange={e => setRForm({...rForm, receptor: e.target.value})} placeholder="Ej. Hospital General..." style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', outline: 'none'}} autoFocus /></div>
-                            <div><label style={{display: 'block', fontSize: '0.85rem', color: '#ea580c', marginBottom: '8px', fontWeight: 'bold'}}>{t('impresionDiagnostica')}</label><textarea value={rForm.diagnostico} onChange={e => setRForm({...rForm, diagnostico: e.target.value})} placeholder="Ej. Crisis Hipertensiva..." style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', resize: 'vertical', minHeight: '80px', outline: 'none'}} /></div>
-                            <div><label style={{display: 'block', fontSize: '0.85rem', color: '#ea580c', marginBottom: '8px', fontWeight: 'bold'}}>{t('motivoTraslado')}</label><textarea value={rForm.motivo} onChange={e => setRForm({...rForm, motivo: e.target.value})} placeholder="Ej. Requiere valoración cardiológica urgente..." style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', resize: 'vertical', minHeight: '80px', outline: 'none'}} /></div>
+                            <div><label style={{display: 'block', fontSize: '0.9rem', color: '#ea580c', marginBottom: '8px', fontWeight: 'bold'}}>{t('hospitalReceptor')}</label><input type="text" value={rForm.receptor} onChange={e => setRForm({...rForm, receptor: e.target.value})} placeholder="Ej. Hospital General..." style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', outline: 'none'}} autoFocus /></div>
+                            <div><label style={{display: 'block', fontSize: '0.9rem', color: '#ea580c', marginBottom: '8px', fontWeight: 'bold'}}>{t('impresionDiagnostica')}</label><textarea value={rForm.diagnostico} onChange={e => setRForm({...rForm, diagnostico: e.target.value})} placeholder="Ej. Crisis Hipertensiva..." style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', resize: 'vertical', minHeight: '80px', outline: 'none'}} /></div>
+                            <div><label style={{display: 'block', fontSize: '0.9rem', color: '#ea580c', marginBottom: '8px', fontWeight: 'bold'}}>{t('motivoTraslado')}</label><textarea value={rForm.motivo} onChange={e => setRForm({...rForm, motivo: e.target.value})} placeholder="Ej. Requiere valoración cardiológica urgente..." style={{width: '100%', padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', resize: 'vertical', minHeight: '80px', outline: 'none'}} /></div>
                         </div>
                         <div style={{display: 'flex', gap: '15px'}}>
                             <button className="btn-action" onClick={() => setShowReferenciaModal(false)} style={{flex: 1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', fontWeight: 'bold', borderRadius: '8px'}}>{t('cancelar')}</button>
@@ -1161,13 +1162,13 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
             )}
 
             <style jsx>{`
-                .tab-btn { padding: 20px 10px; background: transparent; border: none; cursor: pointer; font-size: 0.95rem; font-weight: bold; transition: all 0.2s ease; }
+                .tab-btn { padding: 20px 10px; background: transparent; border: none; cursor: pointer; font-size: 1rem; font-weight: bold; transition: all 0.2s ease; }
                 .tab-btn:hover { color: var(--text-main) !important; }
-                .form-label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-                .form-input { width: 100%; padding: 14px; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 10px; font-size: 1rem; transition: all 0.3s ease; }
+                .form-label { display: block; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+                .form-input { width: 100%; padding: 14px; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 10px; font-size: 1.1rem; transition: all 0.3s ease; }
                 .form-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15); }
                 .form-input:disabled { opacity: 0.6; cursor: not-allowed; }
-                .smart-chip { background: var(--bg-panel); border: 1px solid var(--border-color); color: var(--text-main); padding: 6px 12px; border-radius: 20px; font-size: 0.8rem; cursor: pointer; transition: 0.2s; }
+                .smart-chip { background: var(--bg-panel); border: 1px solid var(--border-color); color: var(--text-main); padding: 6px 12px; border-radius: 20px; font-size: 0.9rem; cursor: pointer; transition: 0.2s; }
                 .smart-chip:hover { background: var(--accent); color: white; border-color: var(--accent); }
                 
                 .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
@@ -1191,27 +1192,27 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                 .wizard-step.completed .step-icon { background: var(--success); border-color: var(--success); color: white; }
                 
                 .step-text { display: flex; flex-direction: column; flex: 1; }
-                .step-title { font-weight: bold; color: var(--text-muted); font-size: 0.9rem; transition: 0.3s; }
+                .step-title { font-weight: bold; color: var(--text-muted); font-size: 1rem; transition: 0.3s; }
                 .wizard-step.active .step-title, .wizard-step.completed .step-title { color: var(--text-main); }
-                .step-desc { font-size: 0.7rem; color: var(--text-muted); margin-top: 3px; }
+                .step-desc { font-size: 0.8rem; color: var(--text-muted); margin-top: 3px; }
 
                 .wizard-content { flex: 1; padding: 30px; overflow-y: auto; background: var(--bg-panel); }
                 .step-pane { max-width: 1000px; margin: 0 auto; width: 100%; }
-                .pane-title { color: var(--text-main); font-size: 1.3rem; margin: 0 0 25px 0; padding-bottom: 15px; border-bottom: 1px solid var(--border-color); }
+                .pane-title { color: var(--text-main); font-size: 1.4rem; margin: 0 0 25px 0; padding-bottom: 15px; border-bottom: 1px solid var(--border-color); }
                 
                 .wizard-footer { padding: 20px 40px; background: var(--bg-main); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
                 
-                .read-box { border: 1px solid var(--border-color); padding: 15px; border-radius: 8px; margin-bottom: 15px; background: var(--bg-main); font-size: 0.95rem; color: var(--text-main); line-height: 1.5; }
-                .read-box .label { font-weight: bold; font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 5px; text-transform: uppercase; }
+                .read-box { border: 1px solid var(--border-color); padding: 15px; border-radius: 8px; margin-bottom: 15px; background: var(--bg-main); font-size: 1.05rem; color: var(--text-main); line-height: 1.5; }
+                .read-box .label { font-weight: bold; font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 5px; text-transform: uppercase; }
 
                 /* 🚀 CSS MATRICES MTCh */
                 .mtc-matrix-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-                .mtc-matrix-table th { font-size: 0.85rem; padding: 10px 5px; border-bottom: 2px solid var(--border-color); white-space: nowrap; text-align: center; overflow: hidden; text-overflow: ellipsis; }
+                .mtc-matrix-table th { font-size: 0.95rem; padding: 10px 5px; border-bottom: 2px solid var(--border-color); white-space: nowrap; text-align: center; overflow: hidden; text-overflow: ellipsis; }
                 .mtc-row-hover { transition: background-color 0.2s ease; }
                 .mtc-row-hover:hover { background-color: rgba(125, 125, 125, 0.05); }
-                .row-label { padding: 12px 10px; font-weight: bold; color: var(--text-muted); border-bottom: 1px solid var(--border-color); font-size: 0.85rem; text-align: left; width: 25%; }
+                .row-label { padding: 12px 10px; font-weight: bold; color: var(--text-muted); border-bottom: 1px solid var(--border-color); font-size: 0.95rem; text-align: left; width: 25%; }
                 .cell-checkbox { text-align: center; border-bottom: 1px solid var(--border-color); padding: 8px 5px; cursor: pointer; }
-                .custom-check { width: 22px; height: 22px; border: 2px solid var(--border-color); border-radius: 6px; margin: 0 auto; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; transition: all 0.2s ease; }
+                .custom-check { width: 24px; height: 24px; border: 2px solid var(--border-color); border-radius: 6px; margin: 0 auto; display: flex; align-items: center; justify-content: center; color: white; font-size: 14px; transition: all 0.2s ease; }
                 .custom-check.checked { border-color: transparent; }
                 .cell-checkbox:hover .custom-check:not(.checked) { border-color: var(--text-muted); }
                 
