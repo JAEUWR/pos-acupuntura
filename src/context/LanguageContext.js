@@ -337,6 +337,7 @@ const translations = {
         sinTelefono: "Sin teléfono", articulo: "Artículo", pUnit: "P. Unit", totalTicket: "Total Ticket:", sinRegistrosCompras: "No hay registros de compras.",
         estadoCivil: "Estado Civil", soltero: "Soltero(a)", casado: "Casado(a)", divorciado: "Divorciado(a)", viudo: "Viudo(a)", unionLibre: "Unión Libre", otro: "Otro", ocupacion: "Ocupación", ejOcupacion: "Ej. Estudiante, Docente, Ing...", pacienteHablaIngles: "Paciente habla Inglés (Pase directo con Médico)", notaInterna: "Nota Interna (Staff)", notaInternaDesc: "Comentarios privados. El paciente no verá esto.", ejNotaInterna: "Ej. Cliente conflictivo, prefiere pasar con la Dra. Ana...", abandonoTx: "Abandono de Tx", alDia: "Al Día", confirmarEliminarExpediente: "¿Estás seguro de que deseas eliminar permanentemente el expediente de", accionNoDeshacer: "Esta acción no se puede deshacer.", expedienteEliminadoExito: "Expediente duplicado eliminado correctamente.", errorEliminarExpediente: "Error al eliminar: Es probable que este paciente ya tenga ventas o historial clínico asociado y no pueda borrarse por seguridad. \n\nDetalle: ", descAlertasClinicas: "Estas alertas generarán un bloqueo visual rojo en el historial del paciente.", seleccionarAlerta: "-- Seleccionar Alerta --", especificarDetalleAlerta: "Especificar detalle de la alerta...", anadirAlerta: "Añadir Alerta", guardarExpediente: "Guardar Expediente", editarExpediente: "Editar Expediente", altaExpedienteClinico: "Alta de Expediente Clínico", expAbrev: "Exp:", sinCurpAbrev: "Sin CURP", noExpedientes: "No se encontraron expedientes.", inactivoPor: "Inactivo por", dias: "días", anos: "años", pacienteYaExiste: "Parece que este paciente ya existe", confirmarCrearNuevo: "¿Estás seguro de crear un registro nuevo?", errorActualizar: "Error al actualizar: ", seleccionar: "Seleccionar", femenino: "Femenino", masculino: "Masculino", contactoEmergenciaNum: "Contacto de Emergencia",
         // Módulo Escritorio Médico
+        frentePulmon: "Frente (Pulmón)",
         diabetes: "Diabetes",
         hipertension: "Hipertensión",
         cardiopatia: "Cardiopatía",
@@ -952,6 +953,7 @@ const translations = {
         masculino: "Male",
         contactoEmergenciaNum: "Emergency Contact",
         // Módulo Escritorio Médico
+        frentePulmon: "Forehead (Lung)",
         escritorioMedico: "Medical Dashboard", historiaClinica: "Medical History", notasEvolucion: "Progress Notes",
         motivoConsulta: "Reason for Consultation", padecimientoActual: "Current Illness", antecedentesFamiliares: "Family History",
         antecedentesPersonales: "Personal Medical History (Pathological)", habitosSustancias: "Habits and Substance Use",
@@ -1568,6 +1570,7 @@ const translations = {
         visitas: "访问次数", totalInvertido: "总消费", acciones: "操作", verHistorialCompleto: "查看完整历史", 
         sinTelefono: "无电话", articulo: "物品", pUnit: "单价", totalTicket: "账单总计:", sinRegistrosCompras: "没有购买记录。",
         // Módulo Escritorio Médico
+        frentePulmon: "前额（肺）",
         diabetes: "糖尿病",
         hipertension: "高血压",
         cardiopatia: "心脏病",

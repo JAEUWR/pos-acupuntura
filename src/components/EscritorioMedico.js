@@ -19,6 +19,19 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         return new Date(dateString).toLocaleDateString();
     };
 
+    // 🚀 NUEVA FUNCIÓN: CALCULAR EDAD EXACTA
+    const calcularEdad = (fechaNacimiento) => {
+        if (!fechaNacimiento) return '';
+        const hoy = new Date();
+        const nacimiento = new Date(fechaNacimiento);
+        let edad = hoy.getFullYear() - nacimiento.getFullYear();
+        const m = hoy.getMonth() - nacimiento.getMonth();
+        if (m < 0 || (m === 0 && hoy.getDate() < nacimiento.getDate())) {
+            edad--;
+        }
+        return `${edad} ${t('anos') || 'años'}`;
+    };
+
     const [pacientes, setPacientes] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [pacienteSeleccionado, setPacienteSeleccionado] = useState(null);
@@ -28,7 +41,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
     const [showLegacyClients, setShowLegacyClients] = useState(false);
     const [sucursalesDB, setSucursalesDB] = useState([]);
     
-    // 🚀 ESTADO BARRA RETRÁCTIL
+    // ESTADO BARRA RETRÁCTIL
     const [sidebarOpen, setSidebarOpen] = useState(true);
 
     const [showNewPatientModal, setShowNewPatientModal] = useState(false);
@@ -144,6 +157,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
     const zonasLengua = [
         { id: 'gen', label: t('generalCuerpo') || 'General / Cuerpo', color: '#64748b' },
         { id: 'pun', label: t('punta') || 'Punta (Corazón)', color: '#ef4444' },
+        { id: 'fre', label: t('frentePulmon') || 'Frente (Pulmón)', color: '#94a3b8' },
         { id: 'cen', label: t('centro') || 'Centro (Bazo/Estó.)', color: '#f59e0b' },
         { id: 'lad', label: t('lados') || 'Lados (Hígado)', color: '#10b981' },
         { id: 'rai', label: t('raiz') || 'Raíz (Riñón)', color: '#3b82f6' }
@@ -646,7 +660,9 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                             <div>
                                 <h1 style={{margin: '0 0 5px 0', color: 'var(--text-main)', fontSize: '1.6rem'}}>{pacienteSeleccionado.nombre}</h1>
                                 <span style={{color: 'var(--text-muted)', fontSize: '0.9rem'}}>
-                                    <i className="fa-solid fa-person-half-dress" style={{marginRight: '5px'}}></i> {pacienteSeleccionado.sexo} <span style={{margin: '0 10px', opacity: 0.3}}>|</span> 
+                                    {/* 🚀 AÑADIDA EDAD EXACTA JUNTO AL SEXO */}
+                                    <i className="fa-solid fa-person-half-dress" style={{marginRight: '5px'}}></i> {t(pacienteSeleccionado.sexo?.toLowerCase()) || pacienteSeleccionado.sexo} ({calcularEdad(pacienteSeleccionado.fecha_nacimiento)})
+                                    <span style={{margin: '0 10px', opacity: 0.3}}>|</span> 
                                     <i className="fa-regular fa-id-card" style={{marginRight: '5px'}}></i> {pacienteSeleccionado.curp || t('sinCurp')} <span style={{margin: '0 10px', opacity: 0.3}}>|</span> 
                                     {pacienteSeleccionado.codigo_expediente && (
                                         <span style={{background: pacienteSeleccionado.codigo_expediente.includes('LEGACY') ? 'rgba(234, 88, 12, 0.1)' : 'rgba(2, 132, 199, 0.1)', color: pacienteSeleccionado.codigo_expediente.includes('LEGACY') ? '#ea580c' : 'var(--accent)', padding: '3px 8px', borderRadius: '4px', fontWeight: 'bold'}}>{pacienteSeleccionado.codigo_expediente}</span>
@@ -706,7 +722,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                         </div>
                                     ) : (
                                         // WIZARD DE EDICIÓN CLÍNICA
-                                        <div className="wizard-container" style={{height: '100%', borderRadius: 0, border: 'none', boxShadow: 'none'}}>
+                                        <div className="wizard-container" style={{height: '100%', borderRadius: 0, border: 'none', boxShadow: 'none'}} onClick={(e) => e.stopPropagation()}>
                                             <div className="wizard-body">
                                                 
                                                 <div className="wizard-sidebar">
@@ -907,13 +923,13 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                             </div>
 
                                             <div className="wizard-footer">
-                                                <button className="btn-action" onClick={() => setFormStep(prev => prev > 1 ? prev - 1 : 1)} disabled={formStep === 1} style={{padding: '14px 25px', opacity: formStep === 1 ? 0 : 1, cursor: formStep === 1 ? 'default' : 'pointer', background: 'transparent', border: 'none', color: 'var(--text-main)', fontWeight: 'bold'}}><i className="fa-solid fa-arrow-left"></i> {t('atras')}</button>
+                                                <button className="btn-action" onClick={(e) => { e.stopPropagation(); setFormStep(prev => prev > 1 ? prev - 1 : 1); }} disabled={formStep === 1} style={{padding: '14px 25px', opacity: formStep === 1 ? 0 : 1, cursor: formStep === 1 ? 'default' : 'pointer', background: 'transparent', border: 'none', color: 'var(--text-main)', fontWeight: 'bold'}}><i className="fa-solid fa-arrow-left"></i> {t('atras')}</button>
                                                 <div style={{display: 'flex', gap: '15px'}}>
-                                                    <button className="btn-action" onClick={() => guardarHistoria(false)} style={{padding: '14px 25px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 'bold'}}><i className="fa-regular fa-floppy-disk"></i> {t('guardarBorrador')}</button>
+                                                    <button className="btn-action" onClick={(e) => { e.stopPropagation(); guardarHistoria(false); }} style={{padding: '14px 25px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 'bold'}}><i className="fa-regular fa-floppy-disk"></i> {t('guardarBorrador')}</button>
                                                     {formStep < 4 ? (
-                                                        <button className="btn-primary" onClick={() => setFormStep(prev => prev + 1)} style={{padding: '14px 30px', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}}>{t('siguiente')} <i className="fa-solid fa-arrow-right"></i></button>
+                                                        <button className="btn-primary" onClick={(e) => { e.stopPropagation(); setFormStep(prev => prev + 1); }} style={{padding: '14px 30px', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}}>{t('siguiente')} <i className="fa-solid fa-arrow-right"></i></button>
                                                     ) : (
-                                                        <button className="btn-primary" onClick={() => guardarHistoria(true)} style={{padding: '14px 35px', background: 'var(--success)', border: 'none', borderRadius: '10px', fontWeight: '900', cursor: 'pointer', boxShadow: '0 4px 15px rgba(22, 163, 74, 0.4)'}}><i className="fa-solid fa-lock"></i> {t('firmarHistoriaClinica')}</button>
+                                                        <button className="btn-primary" onClick={(e) => { e.stopPropagation(); guardarHistoria(true); }} style={{padding: '14px 35px', background: 'var(--success)', border: 'none', borderRadius: '10px', fontWeight: '900', cursor: 'pointer', boxShadow: '0 4px 15px rgba(22, 163, 74, 0.4)'}}><i className="fa-solid fa-lock"></i> {t('firmarHistoriaClinica')}</button>
                                                     )}
                                                 </div>
                                             </div>
@@ -994,8 +1010,8 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
                                                 {nForm.estado !== 'firmada' ? (
                                                     <div style={{display: 'flex', gap: '15px', borderTop: '1px solid var(--border-color)', paddingTop: '30px'}}>
-                                                        <button className="btn-action" onClick={() => guardarNota(false)} style={{flex: 1, padding: '16px', background: 'var(--bg-lighter)', color: 'var(--text-main)', border: '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '1rem'}}><i className="fa-regular fa-floppy-disk"></i> {t('guardarBorrador')}</button>
-                                                        <button className="btn-primary" onClick={() => guardarNota(true)} style={{flex: 1, padding: '16px', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}}><i className="fa-solid fa-lock"></i> {t('firmar')}</button>
+                                                        <button className="btn-action" onClick={(e) => { e.stopPropagation(); guardarNota(false); }} style={{flex: 1, padding: '16px', background: 'var(--bg-lighter)', color: 'var(--text-main)', border: '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '1rem'}}><i className="fa-regular fa-floppy-disk"></i> {t('guardarBorrador')}</button>
+                                                        <button className="btn-primary" onClick={(e) => { e.stopPropagation(); guardarNota(true); }} style={{flex: 1, padding: '16px', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}}><i className="fa-solid fa-lock"></i> {t('firmar')}</button>
                                                     </div>
                                                 ) : (
                                                     <div style={{borderTop: '2px dashed var(--border-color)', paddingTop: '30px'}}>
@@ -1009,7 +1025,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                         <div style={{marginTop: '25px', background: 'var(--bg-main)', padding: '20px', borderRadius: '10px', border: '1px solid var(--border-color)'}}>
                                                             <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'block', fontWeight: 'bold'}}>{t('redactarAdenda')}</label>
                                                             <textarea value={nuevaAdenda} onChange={e => setNuevaAdenda(e.target.value)} placeholder="Escribe la fe de erratas o corrección aquí..." style={{width: '100%', padding: '15px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', minHeight: '60px', marginBottom: '10px'}} />
-                                                            <button className="btn-action" onClick={firmarAdenda} style={{background: 'rgba(255, 179, 0, 0.1)', color: '#ea580c', border: '1px solid rgba(255, 179, 0, 0.3)', fontWeight: 'bold', width: '100%', padding: '12px', borderRadius: '8px'}}><i className="fa-solid fa-signature"></i> {t('firmarAdenda')}</button>
+                                                            <button className="btn-action" onClick={(e) => { e.stopPropagation(); firmarAdenda(); }} style={{background: 'rgba(255, 179, 0, 0.1)', color: '#ea580c', border: '1px solid rgba(255, 179, 0, 0.3)', fontWeight: 'bold', width: '100%', padding: '12px', borderRadius: '8px'}}><i className="fa-solid fa-signature"></i> {t('firmarAdenda')}</button>
                                                         </div>
                                                     </div>
                                                 )}
@@ -1030,7 +1046,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                 <div style={{maxWidth: '850px', margin: '0 auto', width: '100%', padding: '30px'}}>
                                     {vistaConsentimiento === 'lista' ? (
                                         <div style={{background: 'var(--bg-main)', padding: '30px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)'}}>
-                                            <button className="btn-primary" onClick={() => setVistaConsentimiento('nuevo')} style={{marginBottom: '30px', padding: '15px 25px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.2)'}}><i className="fa-solid fa-file-signature"></i> {t('nuevoConsentimiento')}</button>
+                                            <button className="btn-primary" onClick={(e) => { e.stopPropagation(); setVistaConsentimiento('nuevo'); }} style={{marginBottom: '30px', padding: '15px 25px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.2)'}}><i className="fa-solid fa-file-signature"></i> {t('nuevoConsentimiento')}</button>
                                             <div style={{display: 'flex', flexDirection: 'column', gap: '20px'}}>
                                                 {consentimientos.length === 0 ? (
                                                     <div style={{textAlign: 'center', color: 'var(--text-muted)', padding: '60px', background: 'var(--bg-panel)', borderRadius: '10px', border: '1px dashed var(--border-color)'}}>{t('noConsentimientos')}</div>
@@ -1063,8 +1079,8 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                 <span style={{color: 'var(--text-main)', fontWeight: 'bold', fontSize: '1.05rem'}}>{t('pacienteAcepta')}</span>
                                             </label>
                                             <div style={{display: 'flex', gap: '15px'}}>
-                                                <button className="btn-action" onClick={() => setVistaConsentimiento('lista')} style={{flex: 1, padding: '16px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '1rem'}}>{t('cancelar')}</button>
-                                                <button className="btn-primary" onClick={generarConsentimiento} style={{flex: 2, padding: '16px', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}}><i className="fa-solid fa-file-signature"></i> {t('firmarConsentimiento')}</button>
+                                                <button className="btn-action" onClick={(e) => { e.stopPropagation(); setVistaConsentimiento('lista'); }} style={{flex: 1, padding: '16px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '1rem'}}>{t('cancelar')}</button>
+                                                <button className="btn-primary" onClick={(e) => { e.stopPropagation(); generarConsentimiento(); }} style={{flex: 2, padding: '16px', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}}><i className="fa-solid fa-file-signature"></i> {t('firmarConsentimiento')}</button>
                                             </div>
                                         </div>
                                     )}
