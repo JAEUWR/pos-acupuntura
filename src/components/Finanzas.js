@@ -161,7 +161,12 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                     const nombreArticulo = det.productos?.nombre || 'Art. Eliminado';
                     const nombreLower = nombreArticulo.toLowerCase();
                     
-                    const esConsultaOficial = det.productos?.es_consulta === true || nombreLower.includes('consulta'); 
+                    // MEGA-FILTRO: Detecta complementos aunque los escriban mal
+                    const esComplemento = nombreLower.includes('complement') || nombreLower.includes('extra') || nombreLower.includes('terapia') || nombreLower.includes('auriculo') || nombreLower.includes('balin');
+                    const esEscaner = nombreLower.includes('escaner') || nombreLower.includes('escáner');
+                    
+                    // Es parte del grupo clínico si es consulta, tiene el flag, o es un complemento. (Excluye escaner)
+                    const esConsultaOficial = (det.productos?.es_consulta === true || nombreLower.includes('consulta') || esComplemento) && !esEscaner; 
                     
                     let valoresMixtos = { efectivo: 0, tarjeta: 0, transferencia: 0 };
                     if (esMixto) valoresMixtos = extraerValoresMixtos(pago, importeDetalle, totalVentaOriginal);
@@ -172,7 +177,11 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         mixtosConsultas.efectivo += valoresMixtos.efectivo;
                         mixtosConsultas.tarjeta += valoresMixtos.tarjeta;
                         mixtosConsultas.transferencia += valoresMixtos.transferencia;
-                        numVisitasReales += cant;
+                        
+                        // AQUÍ LA MAGIA: Solo suma "Visitas" si NO es complemento
+                        if (!esComplemento && (nombreLower.includes('consulta') || det.productos?.es_consulta === true)) {
+                            numVisitasReales += cant;
+                        }
                     } else {
                         arrProductos.push({ folio: v.id, fecha: parseDBDate(v.fecha).toLocaleString(), sucursal: sucursalNombre, cliente: clienteNombre, articulo: nombreArticulo, cantidad: cant, precio: precio, importe: importeDetalle, metodo_pago: pago, esMixto, valoresMixtos });
                     }
@@ -460,7 +469,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         }
     };
 
-    // 🚀 LÓGICA DE EXPORTACIÓN CON FORMATO PREMIUM Y SALDO ACUMULADO PARA BÓVEDA
     const handleExportBovedaConfirm = async () => {
         if (!exportBovedaStartDate || !exportBovedaEndDate) return alert('Selecciona las fechas de inicio y fin para el reporte.');
         
@@ -471,7 +479,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
             const start = `${exportBovedaStartDate}T00:00:00`;
             const end = `${exportBovedaEndDate}T23:59:59`;
 
-            // 1. Obtener el saldo inicial (la suma de la bóveda antes del periodo seleccionado)
             const { data: previousData, error: errPrev } = await supabase
                 .from('movimientos_boveda')
                 .select('monto')
@@ -483,7 +490,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 saldoAcumulado = previousData.reduce((acc, curr) => acc + parseFloat(curr.monto), 0);
             }
 
-            // 2. Obtener movimientos del periodo (Orden ascendente)
             const { data: periodData, error: errPeriod } = await supabase
                 .from('movimientos_boveda')
                 .select('*')
@@ -494,7 +500,6 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
 
             if (errPeriod) throw errPeriod;
 
-            // Formateador de moneda en Excel
             const formatMoney = (val) => {
                 if (val === null || val === undefined || val === '') return '';
                 return '$ ' + parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -744,15 +749,19 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 const tipo = det.productos?.tipo || 'producto';
                 const nom = (det.productos?.nombre || '').toLowerCase();
                 
+                // MEGA-FILTRO: Detecta complementos
                 const esEscaner = nom.includes('escaner') || nom.includes('escáner');
-                const esComplemento = nom.includes('complementario');
+                const esComplemento = nom.includes('complement') || nom.includes('extra') || nom.includes('terapia') || nom.includes('auriculo') || nom.includes('balin');
                 
-                if (isClinical && tipo === 'servicio' && !esEscaner) {
-                    if((nom.includes('consulta') || det.productos?.es_consulta) && !esComplemento) {
-                        sucursalesStats[v.sucursal_id].consultas += det.cantidad;
+                // Si es un servicio médico que NO es escaner ni complemento, sumamos como consulta
+                if (isClinical && tipo === 'servicio' && !esEscaner && !esComplemento) {
+                    if(nom.includes('consulta') || det.productos?.es_consulta === true) {
+                        sucursalesStats[v.sucursal_id].consultas += parseInt(det.cantidad);
+                    } else {
+                        sucursalesStats[v.sucursal_id].productos += parseInt(det.cantidad);
                     }
-                } else {
-                    sucursalesStats[v.sucursal_id].productos += det.cantidad;
+                } else if (esEscaner || tipo !== 'servicio' || !isClinical) {
+                    sucursalesStats[v.sucursal_id].productos += parseInt(det.cantidad);
                 }
             });
         }
@@ -776,14 +785,19 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         v.venta_detalles?.forEach(det => {
             const tipo = det.productos?.tipo || 'producto';
             const nom = (det.productos?.nombre || '').toLowerCase();
+            const cant = parseInt(det.cantidad) || 0;
             
+            // MEGA-FILTRO: Detecta complementos
             const esEscaner = nom.includes('escaner') || nom.includes('escáner');
-            const esComplemento = nom.includes('complementario');
+            const esComplemento = nom.includes('complement') || nom.includes('extra') || nom.includes('terapia') || nom.includes('auriculo') || nom.includes('balin');
             
             if (isClinical && tipo === 'servicio' && !esEscaner) {
-                subtotalDoc += (det.cantidad * det.precio_unitario);
-                if((nom.includes('consulta') || det.productos?.es_consulta) && !esComplemento) {
-                    consultasDoc += det.cantidad;
+                // El ingreso SÍ se le cuenta al doctor
+                subtotalDoc += (cant * parseFloat(det.precio_unitario));
+                
+                // Pero SOLO aumentamos visitas si NO es un complemento
+                if((nom.includes('consulta') || det.productos?.es_consulta === true) && !esComplemento) {
+                    consultasDoc += cant;
                 }
             }
         });
@@ -1472,9 +1486,9 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                 .dash-card-premium:hover { transform: translateY(-5px); box-shadow: 0 15px 30px -5px rgba(0,0,0,0.1), 0 0 20px 0 var(--card-color) inset; border-color: var(--card-color); }
                 .dash-card-premium:hover::before { opacity: 0.15; }
                 .breakdown-section { margin-top: auto; padding-top: 20px; border-top: 1px dashed var(--border-color); font-size: 0.85rem; display: flex; flex-direction: column; gap: 8px; }
-                .breakdown-section div { display: flex; justifyContent: space-between; color: var(--text-muted); }
+                .breakdown-section div { display: flex; justify-content: space-between; color: var(--text-muted); }
                 
-                .receipt-row { display: flex; justify-content: space-between; alignItems: center; margin-bottom: 12px; font-size: 0.95rem; }
+                .receipt-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 0.95rem; }
                 .r-label { color: rgba(255,255,255,0.7); font-weight: 600; }
                 .r-value { font-family: monospace; font-weight: bold; font-size: 1.1rem; }
                 .r-value.neutral { color: #ffffff; }
