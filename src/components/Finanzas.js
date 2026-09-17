@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../context/LanguageContext';
 import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
@@ -9,6 +9,10 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
     
     const [isMounted, setIsMounted] = useState(false);
     const [loading, setLoading] = useState(true);
+    
+    // 🚀 BÓVEDA SECRETA ANTI-DOBLE CLIC
+    const isProcessingRef = useRef(false);
+    const [isProcessingBtn, setIsProcessingBtn] = useState(false);
     
     const parseDBDate = (dateStr) => {
         if (!dateStr) return new Date();
@@ -276,6 +280,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
 
     const yaTieneFondo = movimientosTurnoVirtual.some(m => m.tipo === 'ingreso_manual' && m.motivo.toLowerCase().includes('fondo'));
 
+    // 🚀 BLINDAJE EN CAJA CHICA (INGRESOS/RETIROS)
     const registrarMovimientoCaja = async () => {
         if (!montoCaja || isNaN(montoCaja) || parseFloat(montoCaja) <= 0) return alert(t('alertaMontoInvalido') || 'Monto inválido.');
         let motivoFinal = motivoCaja.trim();
@@ -285,9 +290,18 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         const montoFormateado = (tipoMovCaja === 'ingreso' || tipoMovCaja === 'fondo') ? parseFloat(montoCaja) : -parseFloat(montoCaja);
         if (tipoMovCaja === 'retiro' && parseFloat(montoCaja) > saldoCaja) return alert(t('alertaEfectivoInsuficiente') || 'No hay suficiente efectivo en caja para realizar este retiro.');
 
-        const { error } = await supabase.rpc('registrar_movimiento_caja', { p_sucursal_id: sucursalId, p_tipo: (tipoMovCaja === 'ingreso' || tipoMovCaja === 'fondo') ? 'ingreso_manual' : 'retiro_manual', p_monto: montoFormateado, p_motivo: motivoFinal });
-        if (error) alert('Error: ' + error.message);
-        else { setShowCajaModal(false); setMontoCaja(''); setMotivoCaja(''); fetchFinanzas(); }
+        if (isProcessingRef.current) return;
+        isProcessingRef.current = true;
+        setIsProcessingBtn(true);
+
+        try {
+            const { error } = await supabase.rpc('registrar_movimiento_caja', { p_sucursal_id: sucursalId, p_tipo: (tipoMovCaja === 'ingreso' || tipoMovCaja === 'fondo') ? 'ingreso_manual' : 'retiro_manual', p_monto: montoFormateado, p_motivo: motivoFinal });
+            if (error) alert('Error: ' + error.message);
+            else { setShowCajaModal(false); setMontoCaja(''); setMotivoCaja(''); fetchFinanzas(); }
+        } finally {
+            isProcessingRef.current = false;
+            setIsProcessingBtn(false);
+        }
     };
 
     const calcularDiscrepancia = (valorIngresado) => {
@@ -300,6 +314,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
         setDiferenciaCorte(contado - saldoCaja);
     };
 
+    // 🚀 BLINDAJE EN EL CORTE DE CAJA (EL MÁS CRÍTICO)
     const confirmarCorteYTransferencia = async () => {
         if (saldoCaja <= 0) {
             alert(t('alertaCajaCero') || 'La caja está en cero. No hay efectivo que cortar.');
@@ -317,58 +332,80 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
             return alert('El monto a transferir a la Bóveda no puede ser mayor al efectivo físico que contaste ni menor a cero.');
         }
 
-        const notaDiscrepancia = diferenciaCorte !== 0 ? `|Discrepancia:${diferenciaCorte > 0 ? '+' : ''}${diferenciaCorte.toFixed(2)}` : '';
-        const snapshotTicket = `Corte|Fondo:${cFondo.toFixed(2)}|Ventas:${cVentas.toFixed(2)}|Entradas:${cEntradas.toFixed(2)}|Salidas:${cSalidas.toFixed(2)}|Total:${saldoCaja.toFixed(2)}|Boveda:${montoTransferencia.toFixed(2)}${notaDiscrepancia}`;
+        if (isProcessingRef.current) return;
+        isProcessingRef.current = true;
+        setIsProcessingBtn(true);
 
-        const { error: errCorte } = await supabase.rpc('registrar_movimiento_caja', { 
-            p_sucursal_id: sucursalId, p_tipo: 'corte_caja', p_monto: -saldoCaja, p_motivo: snapshotTicket 
-        });
+        try {
+            const notaDiscrepancia = diferenciaCorte !== 0 ? `|Discrepancia:${diferenciaCorte > 0 ? '+' : ''}${diferenciaCorte.toFixed(2)}` : '';
+            const snapshotTicket = `Corte|Fondo:${cFondo.toFixed(2)}|Ventas:${cVentas.toFixed(2)}|Entradas:${cEntradas.toFixed(2)}|Salidas:${cSalidas.toFixed(2)}|Total:${saldoCaja.toFixed(2)}|Boveda:${montoTransferencia.toFixed(2)}${notaDiscrepancia}`;
 
-        if (errCorte) return alert('Error al hacer corte: ' + errCorte.message);
-
-        if (montoTransferencia > 0) {
-            await supabase.from('movimientos_boveda').insert({
-                sucursal_id: sucursalId,
-                tipo: 'ingreso_corte',
-                monto: montoTransferencia,
-                motivo: `Transferencia desde Corte de Caja (${new Date().toLocaleDateString()})`
+            const { error: errCorte } = await supabase.rpc('registrar_movimiento_caja', { 
+                p_sucursal_id: sucursalId, p_tipo: 'corte_caja', p_monto: -saldoCaja, p_motivo: snapshotTicket 
             });
 
-            const nuevoSaldoBoveda = saldoBoveda + montoTransferencia;
-            await supabase.from('boveda_estado').update({ saldo: nuevoSaldoBoveda, ultima_actualizacion: new Date().toISOString() }).eq('sucursal_id', sucursalId);
-        }
+            if (errCorte) {
+                alert('Error al hacer corte: ' + errCorte.message);
+                return;
+            }
 
-        alert(t('corteExitoso') || 'Corte de caja exitoso. La caja chica está ahora en $0.00.');
-        imprimirTicketCorte(cFondo, cVentas, cEntradas, cSalidas, saldoCaja, new Date().toISOString(), movimientosTurnoVirtual, montoTransferencia, diferenciaCorte);
-        
-        setShowCorteModal(false);
-        setMontoParaBoveda('');
-        setEfectivoContado('');
-        setDiferenciaCorte(null);
-        fetchFinanzas(); 
+            if (montoTransferencia > 0) {
+                await supabase.from('movimientos_boveda').insert({
+                    sucursal_id: sucursalId,
+                    tipo: 'ingreso_corte',
+                    monto: montoTransferencia,
+                    motivo: `Transferencia desde Corte de Caja (${new Date().toLocaleDateString()})`
+                });
+
+                const nuevoSaldoBoveda = saldoBoveda + montoTransferencia;
+                await supabase.from('boveda_estado').update({ saldo: nuevoSaldoBoveda, ultima_actualizacion: new Date().toISOString() }).eq('sucursal_id', sucursalId);
+            }
+
+            alert(t('corteExitoso') || 'Corte de caja exitoso. La caja chica está ahora en $0.00.');
+            imprimirTicketCorte(cFondo, cVentas, cEntradas, cSalidas, saldoCaja, new Date().toISOString(), movimientosTurnoVirtual, montoTransferencia, diferenciaCorte);
+            
+            setShowCorteModal(false);
+            setMontoParaBoveda('');
+            setEfectivoContado('');
+            setDiferenciaCorte(null);
+            fetchFinanzas(); 
+        } finally {
+            isProcessingRef.current = false;
+            setIsProcessingBtn(false);
+        }
     };
 
+    // 🚀 BLINDAJE EN RETIRO DE BÓVEDA
     const retirarDeBoveda = async () => {
         const monto = parseFloat(montoRetiroBoveda) || 0;
         if (monto <= 0) return alert('Monto inválido.');
         if (monto > saldoBoveda) return alert('No hay suficientes fondos en la Caja Fuerte.');
         if (!motivoRetiroBoveda.trim()) return alert('Debes agregar un motivo.');
 
-        await supabase.from('movimientos_boveda').insert({
-            sucursal_id: sucursalId,
-            tipo: 'retiro_duenos',
-            monto: -monto, 
-            motivo: motivoRetiroBoveda.trim()
-        });
+        if (isProcessingRef.current) return;
+        isProcessingRef.current = true;
+        setIsProcessingBtn(true);
 
-        const nuevoSaldoBoveda = saldoBoveda - monto;
-        await supabase.from('boveda_estado').update({ saldo: nuevoSaldoBoveda, ultima_actualizacion: new Date().toISOString() }).eq('sucursal_id', sucursalId);
+        try {
+            await supabase.from('movimientos_boveda').insert({
+                sucursal_id: sucursalId,
+                tipo: 'retiro_duenos',
+                monto: -monto, 
+                motivo: motivoRetiroBoveda.trim()
+            });
 
-        alert('Retiro de Caja Fuerte registrado correctamente.');
-        setShowRetiroBovedaModal(false);
-        setMontoRetiroBoveda('');
-        setMotivoRetiroBoveda('');
-        fetchFinanzas();
+            const nuevoSaldoBoveda = saldoBoveda - monto;
+            await supabase.from('boveda_estado').update({ saldo: nuevoSaldoBoveda, ultima_actualizacion: new Date().toISOString() }).eq('sucursal_id', sucursalId);
+
+            alert('Retiro de Caja Fuerte registrado correctamente.');
+            setShowRetiroBovedaModal(false);
+            setMontoRetiroBoveda('');
+            setMotivoRetiroBoveda('');
+            fetchFinanzas();
+        } finally {
+            isProcessingRef.current = false;
+            setIsProcessingBtn(false);
+        }
     };
 
     const imprimirTicketCorte = (fondo, ventas, entradas, salidas, total, fechaStr, listaMovimientos, transferidoBoveda = 0, discrepancia = null) => {
@@ -1408,7 +1445,7 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                             </div>
                             <div style={{background: 'var(--bg-main)', border: '1px solid var(--border-color)', padding: '20px', borderRadius: '12px', marginBottom: '20px'}}>
                                 <label style={{fontSize: '0.9rem', color: 'var(--text-main)', display: 'block', marginBottom: '10px', fontWeight: 'bold'}}><i className="fa-solid fa-money-bill-wave" style={{color: 'var(--success)', marginRight: '5px'}}></i> ¿Cuánto efectivo contaste realmente?</label>
-                                <input type="number" value={efectivoContado} onChange={(e) => calcularDiscrepancia(e.target.value)} placeholder="Ingresa la cantidad física" autoFocus style={{width:'100%', padding:'15px', background:'var(--bg-panel)', color:'var(--text-main)', border: `2px solid ${diferenciaCorte === null ? 'var(--border-color)' : (diferenciaCorte === 0 ? 'var(--success)' : 'var(--primary-red)')}`, borderRadius: '10px', fontSize: '1.5rem', fontWeight: '900', textAlign: 'center', outline: 'none', transition: '0.3s'}} />
+                                <input type="number" disabled={isProcessingBtn} value={efectivoContado} onChange={(e) => calcularDiscrepancia(e.target.value)} placeholder="Ingresa la cantidad física" autoFocus style={{width:'100%', padding:'15px', background:'var(--bg-panel)', color:'var(--text-main)', border: `2px solid ${diferenciaCorte === null ? 'var(--border-color)' : (diferenciaCorte === 0 ? 'var(--success)' : 'var(--primary-red)')}`, borderRadius: '10px', fontSize: '1.5rem', fontWeight: '900', textAlign: 'center', outline: 'none', transition: '0.3s', cursor: isProcessingBtn ? 'not-allowed' : 'text'}} />
                                 {diferenciaCorte !== null && (
                                     <div style={{marginTop: '15px', padding: '10px', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', background: diferenciaCorte === 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: diferenciaCorte === 0 ? '#10b981' : '#ef4444'}}>
                                         {diferenciaCorte === 0 ? <><i className="fa-solid fa-check-circle"></i> ¡Todo en orden! Cuadre perfecto.</> : <><i className="fa-solid fa-triangle-exclamation"></i> ⚠️ Discrepancia: {diferenciaCorte > 0 ? `Sobran $${Math.abs(diferenciaCorte).toFixed(2)}` : `Faltan $${Math.abs(diferenciaCorte).toFixed(2)}`}. Repórtalo a gerencia.</>}
@@ -1418,17 +1455,19 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                             {diferenciaCorte !== null && (
                                 <div className="animate-slide-up" style={{background: 'rgba(71, 85, 105, 0.1)', border: '1px solid rgba(71, 85, 105, 0.3)', padding: '20px', borderRadius: '12px'}}>
                                     <label style={{fontSize: '0.9rem', color: 'var(--text-main)', display: 'block', marginBottom: '10px', fontWeight: 'bold'}}><i className="fa-solid fa-vault" style={{color: '#94a3b8', marginRight: '5px'}}></i> Del dinero contado, ¿Cuánto envías a la Bóveda?</label>
-                                    <input type="number" value={montoParaBoveda} onChange={(e) => setMontoParaBoveda(e.target.value)} placeholder="0.00" style={{width:'100%', padding:'12px', background:'var(--bg-main)', color:'#cbd5e1', border: '1px solid #475569', borderRadius: '8px', fontSize: '1.2rem', fontWeight: 'bold', textAlign: 'center', outline: 'none'}} />
+                                    <input type="number" disabled={isProcessingBtn} value={montoParaBoveda} onChange={(e) => setMontoParaBoveda(e.target.value)} placeholder="0.00" style={{width:'100%', padding:'12px', background:'var(--bg-main)', color:'#cbd5e1', border: '1px solid #475569', borderRadius: '8px', fontSize: '1.2rem', fontWeight: 'bold', textAlign: 'center', outline: 'none', cursor: isProcessingBtn ? 'not-allowed' : 'text'}} />
                                     <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
-                                        <button onClick={() => setMontoParaBoveda((parseFloat(efectivoContado) / 2).toFixed(2))} style={{flex: 1, padding: '8px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold'}}>La mitad</button>
-                                        <button onClick={() => setMontoParaBoveda(parseFloat(efectivoContado).toFixed(2))} style={{flex: 1, padding: '8px', background: 'rgba(71, 85, 105, 0.2)', border: '1px solid #475569', color: '#cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold'}}>El Total</button>
+                                        <button disabled={isProcessingBtn} onClick={() => setMontoParaBoveda((parseFloat(efectivoContado) / 2).toFixed(2))} style={{flex: 1, padding: '8px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', borderRadius: '6px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer', fontSize: '0.8rem', fontWeight: 'bold'}}>La mitad</button>
+                                        <button disabled={isProcessingBtn} onClick={() => setMontoParaBoveda(parseFloat(efectivoContado).toFixed(2))} style={{flex: 1, padding: '8px', background: 'rgba(71, 85, 105, 0.2)', border: '1px solid #475569', color: '#cbd5e1', borderRadius: '6px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer', fontSize: '0.8rem', fontWeight: 'bold'}}>El Total</button>
                                     </div>
                                 </div>
                             )}
                         </div>
                         <div style={{padding: '20px 30px', background: 'var(--bg-main)', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '15px'}}>
-                            <button className="btn-action" style={{flex:1, padding: '16px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem'}} onClick={() => {setShowCorteModal(false); setMontoParaBoveda(''); setEfectivoContado(''); setDiferenciaCorte(null);}}>{t('cancelar') || 'Cancelar'}</button>
-                            <button className="btn-primary" disabled={diferenciaCorte === null} style={{flex:2, padding: '16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: diferenciaCorte === null ? 'not-allowed' : 'pointer', opacity: diferenciaCorte === null ? 0.5 : 1, boxShadow: '0 5px 15px rgba(16, 185, 129, 0.3)'}} onClick={confirmarCorteYTransferencia}><i className="fa-solid fa-check"></i> {t('confirmarCorte') || 'Terminar Turno y Cortar'}</button>
+                            <button className="btn-action" disabled={isProcessingBtn} style={{flex:1, padding: '16px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}} onClick={() => {setShowCorteModal(false); setMontoParaBoveda(''); setEfectivoContado(''); setDiferenciaCorte(null);}}>{t('cancelar') || 'Cancelar'}</button>
+                            <button className="btn-primary" disabled={diferenciaCorte === null || isProcessingBtn} style={{flex:2, padding: '16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: (diferenciaCorte === null || isProcessingBtn) ? 'not-allowed' : 'pointer', opacity: (diferenciaCorte === null || isProcessingBtn) ? 0.5 : 1, boxShadow: '0 5px 15px rgba(16, 185, 129, 0.3)'}} onClick={confirmarCorteYTransferencia}>
+                                {isProcessingBtn ? <><i className="fa-solid fa-spinner fa-spin"></i> Procesando...</> : <><i className="fa-solid fa-check"></i> {t('confirmarCorte') || 'Terminar Turno y Cortar'}</>}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1443,13 +1482,15 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         </div>
                         <div style={{padding: '30px'}}>
                             <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('montoEfectivoDesc') || 'Monto a Retirar ($)'}</label>
-                            <input type="number" value={montoRetiroBoveda} onChange={(e) => setMontoRetiroBoveda(e.target.value)} placeholder="0.00" autoFocus style={{width:'100%', padding:'15px', marginBottom:'20px', background:'var(--bg-main)', color:'#cbd5e1', border: '2px solid #475569', borderRadius: '10px', fontSize: '2rem', fontWeight: '900', textAlign: 'center', outline: 'none'}} />
+                            <input type="number" disabled={isProcessingBtn} value={montoRetiroBoveda} onChange={(e) => setMontoRetiroBoveda(e.target.value)} placeholder="0.00" autoFocus style={{width:'100%', padding:'15px', marginBottom:'20px', background:'var(--bg-main)', color:'#cbd5e1', border: '2px solid #475569', borderRadius: '10px', fontSize: '2rem', fontWeight: '900', textAlign: 'center', outline: 'none', cursor: isProcessingBtn ? 'not-allowed' : 'text'}} />
                             <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('motivoDescripcion') || 'Motivo / Descripción'}</label>
-                            <input type="text" value={motivoRetiroBoveda} onChange={(e) => setMotivoRetiroBoveda(e.target.value)} placeholder="Ej. Depósito al banco, Retiro dueños..." style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} />
+                            <input type="text" disabled={isProcessingBtn} value={motivoRetiroBoveda} onChange={(e) => setMotivoRetiroBoveda(e.target.value)} placeholder="Ej. Depósito al banco, Retiro dueños..." style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', cursor: isProcessingBtn ? 'not-allowed' : 'text'}} />
                         </div>
                         <div style={{padding: '20px 30px', background: 'var(--bg-main)', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '15px'}}>
-                            <button className="btn-action" style={{flex:1, padding: '16px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem'}} onClick={() => {setShowRetiroBovedaModal(false); setMontoRetiroBoveda(''); setMotivoRetiroBoveda('');}}>{t('cancelar') || 'Cancelar'}</button>
-                            <button className="btn-primary" style={{flex:2, padding: '16px', background: '#475569', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: 'pointer', boxShadow: '0 5px 15px rgba(0,0,0,0.3)'}} onClick={retirarDeBoveda}><i className="fa-solid fa-check"></i> {t('procesar') || 'Procesar Retiro'}</button>
+                            <button className="btn-action" disabled={isProcessingBtn} style={{flex:1, padding: '16px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}} onClick={() => {setShowRetiroBovedaModal(false); setMontoRetiroBoveda(''); setMotivoRetiroBoveda('');}}>{t('cancelar') || 'Cancelar'}</button>
+                            <button className="btn-primary" disabled={isProcessingBtn} style={{flex:2, padding: '16px', background: '#475569', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: isProcessingBtn ? 'not-allowed' : 'pointer', boxShadow: '0 5px 15px rgba(0,0,0,0.3)', opacity: isProcessingBtn ? 0.7 : 1}} onClick={retirarDeBoveda}>
+                                {isProcessingBtn ? <><i className="fa-solid fa-spinner fa-spin"></i> Procesando...</> : <><i className="fa-solid fa-check"></i> {t('procesar') || 'Procesar Retiro'}</>}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1465,16 +1506,18 @@ export default function Finanzas({ branch = 'napoles', perfilActual }) {
                         </h3>
                         {tipoMovCaja === 'ingreso' && <p style={{textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '25px'}}>💡 {t('tipFondoCaja') || "Tip: Si es para arrancar el turno, incluye la palabra 'Fondo' en el motivo."}</p>}
                         <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('montoEfectivoDesc') || 'Monto en Efectivo ($)'}</label>
-                        <input type="number" value={montoCaja} onChange={(e) => setMontoCaja(e.target.value)} placeholder="0.00" autoFocus style={{width:'100%', padding:'20px', marginBottom:'25px', background:'var(--bg-main)', color:'var(--text-main)', border: `2px solid ${tipoMovCaja === 'retiro' ? '#ea580c' : (tipoMovCaja === 'fondo' ? '#10b981' : 'var(--accent)')}`, borderRadius: '12px', fontSize: '2rem', fontWeight: '900', textAlign: 'center', outline: 'none'}} />
+                        <input type="number" disabled={isProcessingBtn} value={montoCaja} onChange={(e) => setMontoCaja(e.target.value)} placeholder="0.00" autoFocus style={{width:'100%', padding:'20px', marginBottom:'25px', background:'var(--bg-main)', color:'var(--text-main)', border: `2px solid ${tipoMovCaja === 'retiro' ? '#ea580c' : (tipoMovCaja === 'fondo' ? '#10b981' : 'var(--accent)')}`, borderRadius: '12px', fontSize: '2rem', fontWeight: '900', textAlign: 'center', outline: 'none', cursor: isProcessingBtn ? 'not-allowed' : 'text'}} />
                         {tipoMovCaja !== 'fondo' && (
                             <>
                                 <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold', textTransform: 'uppercase'}}>{t('motivoDescripcion') || 'Motivo / Descripción'}</label>
-                                <input type="text" value={motivoCaja} onChange={(e) => setMotivoCaja(e.target.value)} placeholder={tipoMovCaja === 'ingreso' ? 'Ej. Abono, etc.' : 'Ej. Pago de garrafones...'} style={{width:'100%', padding:'16px', marginBottom:'35px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontSize: '1.05rem', outline: 'none'}} />
+                                <input type="text" disabled={isProcessingBtn} value={motivoCaja} onChange={(e) => setMotivoCaja(e.target.value)} placeholder={tipoMovCaja === 'ingreso' ? 'Ej. Abono, etc.' : 'Ej. Pago de garrafones...'} style={{width:'100%', padding:'16px', marginBottom:'35px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontSize: '1.05rem', outline: 'none', cursor: isProcessingBtn ? 'not-allowed' : 'text'}} />
                             </>
                         )}
                         <div style={{display:'flex', gap:'15px', marginTop: tipoMovCaja === 'fondo' ? '20px' : '0'}}>
-                            <button className="btn-action" style={{flex:1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem'}} onClick={() => setShowCajaModal(false)}>{t('cancelar') || 'Cancelar'}</button>
-                            <button className="btn-primary" style={{flex:2, padding: '16px', background: tipoMovCaja === 'retiro' ? '#ea580c' : (tipoMovCaja === 'fondo' ? '#10b981' : 'var(--accent)'), color: 'white', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: 'pointer', boxShadow: '0 5px 15px rgba(0,0,0,0.2)'}} onClick={registrarMovimientoCaja}><i className="fa-solid fa-bolt"></i> {t('procesar') || 'Procesar'}</button>
+                            <button className="btn-action" disabled={isProcessingBtn} style={{flex:1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}} onClick={() => setShowCajaModal(false)}>{t('cancelar') || 'Cancelar'}</button>
+                            <button className="btn-primary" disabled={isProcessingBtn} style={{flex:2, padding: '16px', background: tipoMovCaja === 'retiro' ? '#ea580c' : (tipoMovCaja === 'fondo' ? '#10b981' : 'var(--accent)'), color: 'white', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: isProcessingBtn ? 'not-allowed' : 'pointer', boxShadow: '0 5px 15px rgba(0,0,0,0.2)', opacity: isProcessingBtn ? 0.7 : 1}} onClick={registrarMovimientoCaja}>
+                                {isProcessingBtn ? <><i className="fa-solid fa-spinner fa-spin"></i> Procesando...</> : <><i className="fa-solid fa-bolt"></i> {t('procesar') || 'Procesar'}</>}
+                            </button>
                         </div>
                     </div>
                 </div>
