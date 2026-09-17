@@ -64,6 +64,11 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
     const [clientFolder, setClientFolder] = useState(sucursalId);
     const [showLegacyClients, setShowLegacyClients] = useState(false);
 
+    // 🚀 BLINDAJE SILENCIOSO ANTI-DOBLE CLIC (Refuerzo en base de datos)
+    const isProcessingRef = useRef(false);
+    // 🚀 ESTADO VISUAL SOLO PARA EL BOTÓN DE CHECKOUT (Para mostrar "Procesando...")
+    const [isProcessingBtn, setIsProcessingBtn] = useState(false);
+
     const formatUpperCase = (str) => {
         if (!str) return '';
         return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').toUpperCase();
@@ -188,6 +193,10 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         setSelectedClient('');
         setSaleNotes('');
         setMetodoPago('efectivo');
+        setMontoRecibido('');
+        setFolioTransferencia('');
+        setMontosMixtos({efectivo:'', tarjeta:'', transferencia:''});
+        setSelectedDoctor('');
         if (typeof window !== 'undefined') {
             localStorage.removeItem('hk_saved_cart');
             localStorage.removeItem('hk_saved_client');
@@ -196,48 +205,64 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         scannerInputRef.current?.focus();
     };
 
+    // 🚀 ALTA RÁPIDA DE CLIENTE (CON BLINDAJE)
     const guardarClienteExpres = async () => {
         if (!newClientNombres || !newClientApellidos) return alert(t('camposObligatorios') || 'Faltan campos obligatorios (Nombres y Apellidos).');
         
-        const nombresNorm = newClientNombres.trim();
-        const apellidosNorm = newClientApellidos.trim();
-        const fullName = `${nombresNorm} ${apellidosNorm}`;
+        if (isProcessingRef.current) return;
+        isProcessingRef.current = true;
+        setIsProcessingBtn(true);
 
-        const dupes = clientesDB.filter(c => c.nombres === nombresNorm && c.apellidos === apellidosNorm);
+        try {
+            const nombresNorm = newClientNombres.trim();
+            const apellidosNorm = newClientApellidos.trim();
+            const fullName = `${nombresNorm} ${apellidosNorm}`;
 
-        if (dupes.length > 0) {
-            const existingClient = dupes[0];
-            setDuplicateClientFound(existingClient);
+            const dupes = clientesDB.filter(c => c.nombres === nombresNorm && c.apellidos === apellidosNorm);
+
+            if (dupes.length > 0) {
+                const existingClient = dupes[0];
+                setDuplicateClientFound(existingClient);
+                setShowNewClientModal(false); 
+                return;
+            }
+
+            const { data, error } = await supabase.from('clientes').insert([{ 
+                nombre: fullName, 
+                nombres: nombresNorm,
+                apellidos: apellidosNorm,
+                telefono: newClientPhone,
+                sucursal_registro_id: sucursalId
+            }]).select();
+
+            if (error) {
+                alert((t('errorCrearPaciente') || 'Error al crear paciente: ') + error.message);
+                return;
+            }
+
+            const newId = data[0].id;
+            const yearMonth = new Date().getFullYear().toString().slice(-2) + (new Date().getMonth() + 1).toString().padStart(2, '0');
+            const branchLetter = (branch || 'Napoles').charAt(0).toUpperCase();
+            const expCode = `HK-${branchLetter}-${yearMonth}-${newId.toString().padStart(4, '0')}`;
+            
+            await supabase.from('clientes').update({ codigo_expediente: expCode }).eq('id', newId);
+            
+            const clientFinal = { ...data[0], codigo_expediente: expCode };
+
+            setClientesDB([...clientesDB, clientFinal].sort((a,b) => a.nombre.localeCompare(b.nombre)));
+            setSelectedClient(clientFinal.id); 
             setShowNewClientModal(false); 
-            return;
+            setNewClientNombres(''); 
+            setNewClientApellidos(''); 
+            setNewClientPhone('');
+            
+        } catch (e) {
+            console.error(e);
+        } finally {
+            isProcessingRef.current = false;
+            setIsProcessingBtn(false);
+            setTimeout(() => scannerInputRef.current?.focus(), 50);
         }
-
-        const { data, error } = await supabase.from('clientes').insert([{ 
-            nombre: fullName, 
-            nombres: nombresNorm,
-            apellidos: apellidosNorm,
-            telefono: newClientPhone,
-            sucursal_registro_id: sucursalId
-        }]).select();
-
-        if (error) return alert((t('errorCrearPaciente') || 'Error al crear paciente: ') + error.message);
-
-        const newId = data[0].id;
-        const yearMonth = new Date().getFullYear().toString().slice(-2) + (new Date().getMonth() + 1).toString().padStart(2, '0');
-        const branchLetter = (branch || 'Napoles').charAt(0).toUpperCase();
-        const expCode = `HK-${branchLetter}-${yearMonth}-${newId.toString().padStart(4, '0')}`;
-        
-        await supabase.from('clientes').update({ codigo_expediente: expCode }).eq('id', newId);
-        
-        const clientFinal = { ...data[0], codigo_expediente: expCode };
-
-        setClientesDB([...clientesDB, clientFinal].sort((a,b) => a.nombre.localeCompare(b.nombre)));
-        setSelectedClient(clientFinal.id); 
-        setShowNewClientModal(false); 
-        setNewClientNombres(''); 
-        setNewClientApellidos(''); 
-        setNewClientPhone('');
-        setTimeout(() => scannerInputRef.current?.focus(), 50);
     };
 
     const handleSelectDuplicate = () => {
@@ -257,56 +282,66 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         }
     };
 
+    // 🚀 CANCELAR VENTA (CON BLINDAJE)
     const cancelarVenta = async (venta) => {
         if (!window.confirm(t('confirmarCancelacion') || `¿Estás seguro de cancelar el folio #${venta.id}?\n\nEsta acción:\n1. Anulará la venta en los reportes financieros.\n2. Devolverá los productos físicos al inventario.\n3. Retirará el efectivo cobrado de la caja física.`)) return;
 
-        const { error } = await supabase.from('ventas').update({ estatus: 'cancelada' }).eq('id', venta.id);
-        if (error) {
-            alert((t('errorCancelarVenta') || 'Error al cancelar la venta: ') + error.message);
-            return;
-        }
+        if (isProcessingRef.current) return;
+        isProcessingRef.current = true;
 
-        for (const detalle of venta.venta_detalles) {
-            if (detalle.productos?.tipo !== 'servicio' && detalle.productos?.tipo !== 'consulta') {
-                const { data: invData } = await supabase.from('inventario').select('stock').eq('producto_id', detalle.producto_id).eq('sucursal_id', sucursalId).single();
-                if (invData) {
-                    const nuevoStock = invData.stock + detalle.cantidad; 
-                    await supabase.from('inventario').update({ stock: nuevoStock }).eq('producto_id', detalle.producto_id).eq('sucursal_id', sucursalId);
+        try {
+            const { error } = await supabase.from('ventas').update({ estatus: 'cancelada' }).eq('id', venta.id);
+            if (error) {
+                alert((t('errorCancelarVenta') || 'Error al cancelar la venta: ') + error.message);
+                return;
+            }
+
+            for (const detalle of venta.venta_detalles) {
+                if (detalle.productos?.tipo !== 'servicio' && detalle.productos?.tipo !== 'consulta') {
+                    const { data: invData } = await supabase.from('inventario').select('stock').eq('producto_id', detalle.producto_id).eq('sucursal_id', sucursalId).single();
+                    if (invData) {
+                        const nuevoStock = invData.stock + detalle.cantidad; 
+                        await supabase.from('inventario').update({ stock: nuevoStock }).eq('producto_id', detalle.producto_id).eq('sucursal_id', sucursalId);
+                    }
                 }
             }
+
+            let montoEfectivo = 0;
+            const pagoLower = venta.metodo_pago.toLowerCase();
+            
+            if (pagoLower === 'efectivo' || pagoLower === 'cash') {
+                montoEfectivo = parseFloat(venta.total);
+            } else if (pagoLower.includes('mixto')) {
+                const match = venta.metodo_pago.match(/Efe:\s*\$?([\d.]+)/i);
+                if (match) montoEfectivo = parseFloat(match[1]);
+            }
+
+            if (montoEfectivo > 0) {
+                await supabase.rpc('registrar_movimiento_caja', {
+                    p_sucursal_id: sucursalId,
+                    p_tipo: 'retiro_manual',
+                    p_monto: -Math.abs(montoEfectivo), 
+                    p_motivo: `Salida por Cancelación/Devolución de Venta Folio #${venta.id}`
+                });
+            }
+
+            await supabase.from('historial_inventario').insert([{
+                sucursal_id: sucursalId,
+                cantidad: 0,
+                tipo_movimiento: 'sistema',
+                motivo: `El usuario canceló y revirtió la Venta Folio #${venta.id}`,
+                usuario_nombre: perfilActual?.nombre || 'Usuario Desconocido'
+            }]);
+
+            alert(t('ventaCanceladaExito') || 'Venta cancelada exitosamente y productos devueltos al inventario.');
+            
+            fetchDatos();
+            fetchHistorialVentas(); 
+        } catch (e) {
+            console.error(e);
+        } finally {
+            isProcessingRef.current = false;
         }
-
-        let montoEfectivo = 0;
-        const pagoLower = venta.metodo_pago.toLowerCase();
-        
-        if (pagoLower === 'efectivo' || pagoLower === 'cash') {
-            montoEfectivo = parseFloat(venta.total);
-        } else if (pagoLower.includes('mixto')) {
-            const match = venta.metodo_pago.match(/Efe:\s*\$?([\d.]+)/i);
-            if (match) montoEfectivo = parseFloat(match[1]);
-        }
-
-        if (montoEfectivo > 0) {
-            await supabase.rpc('registrar_movimiento_caja', {
-                p_sucursal_id: sucursalId,
-                p_tipo: 'retiro_manual',
-                p_monto: -Math.abs(montoEfectivo), 
-                p_motivo: `Salida por Cancelación/Devolución de Venta Folio #${venta.id}`
-            });
-        }
-
-        await supabase.from('historial_inventario').insert([{
-            sucursal_id: sucursalId,
-            cantidad: 0,
-            tipo_movimiento: 'sistema',
-            motivo: `El usuario canceló y revirtió la Venta Folio #${venta.id}`,
-            usuario_nombre: perfilActual?.nombre || 'Usuario Desconocido'
-        }]);
-
-        alert(t('ventaCanceladaExito') || 'Venta cancelada exitosamente y productos devueltos al inventario.');
-        
-        fetchDatos();
-        fetchHistorialVentas(); 
     };
 
     let subtotalBruto = 0;
@@ -395,49 +430,56 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
         setShowConfirmModal(true);
     };
 
+    // 🚀 PROCESAR PAGO FINAL (CON BLINDAJE FUERTE Y SEGURO)
     const processFinalCheckout = async () => {
-        let stringMetodoPago = metodoPago;
-        let cashToRegister = 0; 
+        if (isProcessingRef.current) return;
+        isProcessingRef.current = true;
+        setIsProcessingBtn(true);
 
-        if (metodoPago === 'efectivo') {
-            cashToRegister = totalCobrar;
-            stringMetodoPago = t('efectivo') || 'Efectivo';
-        } else if (metodoPago === 'tarjeta') {
-            stringMetodoPago = `${t('tarjeta') || 'Tarjeta'} (${tipoTarjeta === 'debito' ? t('debito') || 'Déb' : t('credito') || 'Cré'})`;
-        } else if (metodoPago === 'transferencia') {
-            stringMetodoPago = `${t('transferencia') || 'Transferencia'} (Folio: ${folioTransferencia.trim()})`;
-        } else if (metodoPago === 'mixto') {
-            const efectivoNeto = tMixEfe - cambioMixto;
-            if (efectivoNeto < 0) return alert(t('cambioMontoTarjeta') || 'El cambio supera el monto en efectivo. No puedes dar cambio de tarjeta/transferencia.');
+        try {
+            let stringMetodoPago = metodoPago;
+            let cashToRegister = 0; 
 
-            let desglose = [];
-            if (efectivoNeto > 0) desglose.push(`Efe: $${efectivoNeto.toFixed(2)}`);
-            if (tMixTar > 0) desglose.push(`Tar (${tipoTarjeta === 'debito' ? (t('debito') || 'Déb') : (t('credito') || 'Cré')}): $${tMixTar.toFixed(2)}`);
-            if (tMixTra > 0) desglose.push(`Tra: $${tMixTra.toFixed(2)}${folioTransferencia ? ' f-'+folioTransferencia : ''}`);
+            if (metodoPago === 'efectivo') {
+                cashToRegister = totalCobrar;
+                stringMetodoPago = t('efectivo') || 'Efectivo';
+            } else if (metodoPago === 'tarjeta') {
+                stringMetodoPago = `${t('tarjeta') || 'Tarjeta'} (${tipoTarjeta === 'debito' ? t('debito') || 'Déb' : t('credito') || 'Cré'})`;
+            } else if (metodoPago === 'transferencia') {
+                stringMetodoPago = `${t('transferencia') || 'Transferencia'} (Folio: ${folioTransferencia.trim()})`;
+            } else if (metodoPago === 'mixto') {
+                const efectivoNeto = tMixEfe - cambioMixto;
+                if (efectivoNeto < 0) {
+                    alert(t('cambioMontoTarjeta') || 'El cambio supera el monto en efectivo. No puedes dar cambio de tarjeta/transferencia.');
+                    return; 
+                }
+
+                let desglose = [];
+                if (efectivoNeto > 0) desglose.push(`Efe: $${efectivoNeto.toFixed(2)}`);
+                if (tMixTar > 0) desglose.push(`Tar (${tipoTarjeta === 'debito' ? (t('debito') || 'Déb') : (t('credito') || 'Cré')}): $${tMixTar.toFixed(2)}`);
+                if (tMixTra > 0) desglose.push(`Tra: $${tMixTra.toFixed(2)}${folioTransferencia ? ' f-'+folioTransferencia : ''}`);
+                
+                stringMetodoPago = `Mixto (${desglose.join(', ')})`;
+                cashToRegister = efectivoNeto; 
+            }
+
+            const payloadItems = cartRender.map(item => ({
+                producto_id: item.id, qty: item.qty, tipo_precio: item.tipo_precio,
+                precio: item.qty > 0 ? (item.importeNeto / item.qty).toFixed(2) : item.precio_aplicado 
+            }));
+
+            const clienteIdFinal = selectedClient === 'general' ? null : parseInt(selectedClient);
             
-            stringMetodoPago = `Mixto (${desglose.join(', ')})`;
-            cashToRegister = efectivoNeto; 
-        }
+            const { error } = await supabase.rpc('procesar_venta', { 
+                p_sucursal_id: sucursalId, p_cliente_id: clienteIdFinal, p_total: totalCobrar, 
+                p_metodo_pago: stringMetodoPago, p_items: payloadItems 
+            });
 
-        const btn = document.getElementById('btn-confirm-checkout');
-        if(btn) { btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${t('procesando') || 'Procesando...'}`; btn.disabled = true; }
+            if (error) {
+                alert('Error: ' + error.message);
+                return;
+            } 
 
-        const payloadItems = cartRender.map(item => ({
-            producto_id: item.id, qty: item.qty, tipo_precio: item.tipo_precio,
-            precio: item.qty > 0 ? (item.importeNeto / item.qty).toFixed(2) : item.precio_aplicado 
-        }));
-
-        const clienteIdFinal = selectedClient === 'general' ? null : parseInt(selectedClient);
-        
-        const { error } = await supabase.rpc('procesar_venta', { 
-            p_sucursal_id: sucursalId, p_cliente_id: clienteIdFinal, p_total: totalCobrar, 
-            p_metodo_pago: stringMetodoPago, p_items: payloadItems 
-        });
-
-        if (error) {
-            alert('Error: ' + error.message);
-            if(btn) { btn.innerHTML = `<i class="fa-solid fa-check"></i> ${t('confirmarVenta') || 'Confirmar'}`; btn.disabled = false; }
-        } else {
             const { data: latestSale } = await supabase.from('ventas').select('id').eq('sucursal_id', sucursalId).order('fecha', { ascending: false }).limit(1);
             if (latestSale && latestSale.length > 0) {
                 const saleId = latestSale[0].id;
@@ -468,12 +510,17 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
             }
             
             limpiarVentaActual();
-            setMontoRecibido(''); setFolioTransferencia(''); setMontosMixtos({efectivo:'', tarjeta:'', transferencia:''});
-            setSelectedDoctor(''); setShowConfirmModal(false);
-            setMetodoPago('efectivo'); 
+            setShowConfirmModal(false);
             
             fetchDatos();
             fetchHistorialVentas(); 
+
+        } catch (error) {
+            console.error(error);
+            alert('Error crítico de red. Por favor, verifica el historial de ventas.');
+        } finally {
+            isProcessingRef.current = false;
+            setIsProcessingBtn(false);
         }
     };
 
@@ -532,7 +579,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                                 {item.msjPromo && <span style={{fontSize:'0.7rem', background:'var(--accent)', color:'white', padding:'3px 8px', borderRadius:'6px', display:'inline-block', marginTop:'5px', fontWeight: 'bold'}}><i className="fa-solid fa-tag"></i> {item.msjPromo}</span>}
                                             </td>
                                             <td style={{padding: '5px'}}>
-                                                <select value={item.tipo_precio} onChange={(e) => updatePriceType(item.id, e.target.value)} style={{padding:'8px', borderRadius: '8px', fontSize: '0.85rem', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', outline: 'none', width: '110px'}}>
+                                                <select value={item.tipo_precio} onChange={(e) => updatePriceType(item.id, e.target.value)} style={{padding:'8px', borderRadius: '8px', fontSize: '0.85rem', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', outline: 'none', width: '110px', cursor: 'pointer'}}>
                                                     <option value="general">{t('general')}</option>
                                                     <option value="mayoreo">{t('mayoreo')}</option>
                                                     <option value="distribuidor">{t('distribuidor')}</option>
@@ -542,9 +589,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                             <td style={{color: 'var(--text-main)', textAlign: 'center'}}>${item.precio_aplicado.toFixed(2)}</td>
                                             <td>
                                                 <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', background: 'var(--bg-main)', padding: '4px', borderRadius: '8px', width: 'max-content', margin: '0 auto'}}>
-                                                    <button onClick={() => updateQty(item.id, -1)} style={{background: 'transparent', color: 'var(--text-main)', border: 'none', cursor:'pointer', fontSize: '1.2rem', padding: '0 8px'}}>-</button>
+                                                    <button onClick={() => updateQty(item.id, -1)} style={{background: 'transparent', color: 'var(--text-main)', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 8px'}}>-</button>
                                                     <span style={{color: 'var(--text-main)', fontWeight: 'bold', width: '25px', textAlign: 'center', fontSize: '1rem'}}>{item.qty}</span>
-                                                    <button onClick={() => updateQty(item.id, 1)} style={{background: 'transparent', color: 'var(--text-main)', border: 'none', cursor:'pointer', fontSize: '1.2rem', padding: '0 8px'}}>+</button>
+                                                    <button onClick={() => updateQty(item.id, 1)} style={{background: 'transparent', color: 'var(--text-main)', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 8px'}}>+</button>
                                                 </div>
                                             </td>
                                             <td style={{textAlign: 'right', paddingRight: '15px'}}>
@@ -577,17 +624,17 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                     </span>
                                     <i className="fa-solid fa-magnifying-glass" style={{fontSize: '0.9rem', color: 'var(--accent)'}}></i>
                                 </div>
-                                <button className="btn-action btn-primary" onClick={() => setShowNewClientModal(true)} style={{padding: '0 20px', borderRadius: '12px', flexShrink: 0}} title={t('registrarPaciente')}><i className="fa-solid fa-user-plus"></i></button>
+                                <button className="btn-action btn-primary" onClick={() => setShowNewClientModal(true)} style={{padding: '0 20px', borderRadius: '12px', flexShrink: 0, cursor: 'pointer'}} title={t('registrarPaciente')}><i className="fa-solid fa-user-plus"></i></button>
                             </div>
                         </div>
 
                         <div style={{flexShrink: 0}}>
                             <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}>{t('formaPago')}</label>
                             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px'}}>
-                                <button onClick={() => setMetodoPago('efectivo')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'efectivo' ? 'var(--success)' : 'var(--bg-main)', color: metodoPago === 'efectivo' ? 'white' : 'var(--text-main)', border: metodoPago === 'efectivo' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-money-bill-1-wave" style={{marginRight: '5px'}}></i> {t('efectivo') || 'Efectivo'}</button>
-                                <button onClick={() => setMetodoPago('tarjeta')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'tarjeta' ? 'var(--accent)' : 'var(--bg-main)', color: metodoPago === 'tarjeta' ? 'white' : 'var(--text-main)', border: metodoPago === 'tarjeta' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-credit-card" style={{marginRight: '5px'}}></i> {t('tarjeta') || 'Tarjeta'}</button>
-                                <button onClick={() => setMetodoPago('transferencia')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'transferencia' ? '#9333ea' : 'var(--bg-main)', color: metodoPago === 'transferencia' ? 'white' : 'var(--text-main)', border: metodoPago === 'transferencia' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-building-columns" style={{marginRight: '5px'}}></i> {t('transferenciaAbrev') || 'Transf.'}</button>
-                                <button onClick={() => setMetodoPago('mixto')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'mixto' ? '#eab308' : 'var(--bg-main)', color: metodoPago === 'mixto' ? 'white' : 'var(--text-main)', border: metodoPago === 'mixto' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s'}}><i className="fa-solid fa-chart-pie" style={{marginRight: '5px'}}></i> {t('mixto') || 'Mixto'}</button>
+                                <button onClick={() => setMetodoPago('efectivo')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'efectivo' ? 'var(--success)' : 'var(--bg-main)', color: metodoPago === 'efectivo' ? 'white' : 'var(--text-main)', border: metodoPago === 'efectivo' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s', cursor: 'pointer'}}><i className="fa-solid fa-money-bill-1-wave" style={{marginRight: '5px'}}></i> {t('efectivo') || 'Efectivo'}</button>
+                                <button onClick={() => setMetodoPago('tarjeta')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'tarjeta' ? 'var(--accent)' : 'var(--bg-main)', color: metodoPago === 'tarjeta' ? 'white' : 'var(--text-main)', border: metodoPago === 'tarjeta' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s', cursor: 'pointer'}}><i className="fa-solid fa-credit-card" style={{marginRight: '5px'}}></i> {t('tarjeta') || 'Tarjeta'}</button>
+                                <button onClick={() => setMetodoPago('transferencia')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'transferencia' ? '#9333ea' : 'var(--bg-main)', color: metodoPago === 'transferencia' ? 'white' : 'var(--text-main)', border: metodoPago === 'transferencia' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s', cursor: 'pointer'}}><i className="fa-solid fa-building-columns" style={{marginRight: '5px'}}></i> {t('transferenciaAbrev') || 'Transf.'}</button>
+                                <button onClick={() => setMetodoPago('mixto')} className="btn-action" style={{padding: '10px', borderRadius: '10px', background: metodoPago === 'mixto' ? '#eab308' : 'var(--bg-main)', color: metodoPago === 'mixto' ? 'white' : 'var(--text-main)', border: metodoPago === 'mixto' ? 'none' : '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 'bold', transition: '0.2s', cursor: 'pointer'}}><i className="fa-solid fa-chart-pie" style={{marginRight: '5px'}}></i> {t('mixto') || 'Mixto'}</button>
                             </div>
 
                             {metodoPago === 'efectivo' && (
@@ -595,7 +642,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                                         <span style={{color: 'var(--success)', fontWeight: 'bold', fontSize: '0.9rem'}}>{t('montoRecibido')}</span>
                                         <input type="number" value={montoRecibido} onChange={(e) => setMontoRecibido(e.target.value)} placeholder="$ 0.00" 
-                                            style={{width: '120px', textAlign: 'right', fontSize: '1.1rem', fontWeight: '900', backgroundColor: 'var(--bg-main)', color: 'var(--success)', border: '1px solid var(--success)', padding: '8px', borderRadius: '8px', outline: 'none'}} />
+                                            style={{width: '120px', textAlign: 'right', fontSize: '1.1rem', fontWeight: '900', backgroundColor: 'var(--bg-main)', color: 'var(--success)', border: '1px solid var(--success)', padding: '8px', borderRadius: '8px', outline: 'none', cursor: 'text'}} />
                                     </div>
                                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: '900', fontSize: '1.1rem', color: (parseFloat(montoRecibido || 0) >= totalCobrar) ? 'var(--success)' : 'var(--primary-red)'}}>
                                         <span>{t('cambio')}:</span>
@@ -607,32 +654,32 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                 <div style={{background: 'rgba(2, 132, 199, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid var(--accent)'}}>
                                     <label style={{fontSize: '0.9rem', color: 'var(--accent)', marginBottom: '10px', display: 'block', fontWeight: 'bold'}}>{t('tipoTarjeta')}</label>
                                     <div style={{display: 'flex', gap: '10px'}}>
-                                        <button onClick={() => setTipoTarjeta('debito')} className="btn-action" style={{flex: 1, padding: '12px', borderRadius: '8px', background: tipoTarjeta === 'debito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'debito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'debito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', transition: 'all 0.2s'}}>{t('debito') || 'Débito'}</button>
-                                        <button onClick={() => setTipoTarjeta('credito')} className="btn-action" style={{flex: 1, padding: '12px', borderRadius: '8px', background: tipoTarjeta === 'credito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'credito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'credito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', transition: 'all 0.2s'}}>{t('credito') || 'Crédito'}</button>
+                                        <button onClick={() => setTipoTarjeta('debito')} className="btn-action" style={{flex: 1, padding: '12px', borderRadius: '8px', background: tipoTarjeta === 'debito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'debito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'debito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', transition: 'all 0.2s', cursor: 'pointer'}}>{t('debito') || 'Débito'}</button>
+                                        <button onClick={() => setTipoTarjeta('credito')} className="btn-action" style={{flex: 1, padding: '12px', borderRadius: '8px', background: tipoTarjeta === 'credito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'credito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'credito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', transition: 'all 0.2s', cursor: 'pointer'}}>{t('credito') || 'Crédito'}</button>
                                     </div>
                                 </div>
                             )}
                             {metodoPago === 'transferencia' && (
                                 <div style={{background: 'rgba(147, 51, 234, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid #9333ea'}}>
                                     <label style={{fontSize: '0.9rem', color: '#9333ea', display: 'block', marginBottom: '10px', fontWeight: 'bold'}}><i className="fa-solid fa-hashtag"></i> {t('folioTransferencia')}</label>
-                                    <input type="text" value={folioTransferencia} onChange={(e) => setFolioTransferencia(e.target.value)} placeholder={t('ingresaFolio')} style={{width: '100%', padding: '14px', border: '1px solid #9333ea', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderRadius: '8px', fontSize: '1rem', outline: 'none'}} />
+                                    <input type="text" value={folioTransferencia} onChange={(e) => setFolioTransferencia(e.target.value)} placeholder={t('ingresaFolio')} style={{width: '100%', padding: '14px', border: '1px solid #9333ea', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderRadius: '8px', fontSize: '1rem', outline: 'none', cursor: 'text'}} />
                                 </div>
                             )}
                             {metodoPago === 'mixto' && (
                                 <div style={{background: 'rgba(234, 179, 8, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid #eab308'}}>
                                     <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '10px'}}>
-                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--success)', display: 'block', marginBottom: '4px'}}>{t('efectivo') || 'Efectivo'}</label><input type="number" value={montosMixtos.efectivo} onChange={e=>setMontosMixtos({...montosMixtos, efectivo: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--success)', background: 'var(--bg-main)', color: 'var(--success)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
-                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent)', display: 'block', marginBottom: '4px'}}>{t('tarjeta') || 'Tarjeta'}</label><input type="number" value={montosMixtos.tarjeta} onChange={e=>setMontosMixtos({...montosMixtos, tarjeta: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--bg-main)', color: 'var(--accent)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
-                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: '#9333ea', display: 'block', marginBottom: '4px'}}>{t('transferenciaAbrev') || 'Transf.'}</label><input type="number" value={montosMixtos.transferencia} onChange={e=>setMontosMixtos({...montosMixtos, transferencia: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #9333ea', background: 'var(--bg-main)', color: '#9333ea', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none'}} placeholder="$0.00" /></div>
+                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--success)', display: 'block', marginBottom: '4px'}}>{t('efectivo') || 'Efectivo'}</label><input type="number" value={montosMixtos.efectivo} onChange={e=>setMontosMixtos({...montosMixtos, efectivo: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--success)', background: 'var(--bg-main)', color: 'var(--success)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none', cursor: 'text'}} placeholder="$0.00" /></div>
+                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--accent)', display: 'block', marginBottom: '4px'}}>{t('tarjeta') || 'Tarjeta'}</label><input type="number" value={montosMixtos.tarjeta} onChange={e=>setMontosMixtos({...montosMixtos, tarjeta: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--bg-main)', color: 'var(--accent)', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none', cursor: 'text'}} placeholder="$0.00" /></div>
+                                        <div><label style={{fontSize: '0.7rem', fontWeight: 'bold', color: '#9333ea', display: 'block', marginBottom: '4px'}}>{t('transferenciaAbrev') || 'Transf.'}</label><input type="number" value={montosMixtos.transferencia} onChange={e=>setMontosMixtos({...montosMixtos, transferencia: e.target.value})} style={{width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #9333ea', background: 'var(--bg-main)', color: '#9333ea', fontWeight: 'bold', fontSize: '0.9rem', outline: 'none', cursor: 'text'}} placeholder="$0.00" /></div>
                                     </div>
                                     {(parseFloat(montosMixtos.tarjeta) > 0) && (
                                         <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
-                                            <button onClick={() => setTipoTarjeta('debito')} className="btn-action" style={{flex: 1, padding: '8px', borderRadius: '6px', background: tipoTarjeta === 'debito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'debito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'debito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '0.8rem'}}>{t('debito') || 'Débito'}</button>
-                                            <button onClick={() => setTipoTarjeta('credito')} className="btn-action" style={{flex: 1, padding: '8px', borderRadius: '6px', background: tipoTarjeta === 'credito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'credito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'credito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '0.8rem'}}>{t('credito') || 'Crédito'}</button>
+                                            <button onClick={() => setTipoTarjeta('debito')} className="btn-action" style={{flex: 1, padding: '8px', borderRadius: '6px', background: tipoTarjeta === 'debito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'debito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'debito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer'}}>{t('debito') || 'Débito'}</button>
+                                            <button onClick={() => setTipoTarjeta('credito')} className="btn-action" style={{flex: 1, padding: '8px', borderRadius: '6px', background: tipoTarjeta === 'credito' ? 'var(--accent)' : 'var(--bg-main)', color: tipoTarjeta === 'credito' ? 'white' : 'var(--text-main)', border: tipoTarjeta === 'credito' ? 'none' : '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer'}}>{t('credito') || 'Crédito'}</button>
                                         </div>
                                     )}
                                     {(parseFloat(montosMixtos.transferencia) > 0) && (
-                                        <input type="text" value={folioTransferencia} onChange={(e) => setFolioTransferencia(e.target.value)} placeholder={t('ingresaFolio') || "Folio Transf. (Opcional)"} style={{width: '100%', padding: '8px', border: '1px solid #9333ea', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderRadius: '6px', fontSize: '0.85rem', outline: 'none', marginBottom: '10px'}} />
+                                        <input type="text" value={folioTransferencia} onChange={(e) => setFolioTransferencia(e.target.value)} placeholder={t('ingresaFolio') || "Folio Transf. (Opcional)"} style={{width: '100%', padding: '8px', border: '1px solid #9333ea', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', borderRadius: '6px', fontSize: '0.85rem', outline: 'none', marginBottom: '10px', cursor: 'text'}} />
                                     )}
                                     <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: 'bold'}}>
                                         <span style={{color: 'var(--text-muted)'}}>{t('restante') || 'Restante'}: <strong style={{color: restanteMixto > 0 ? 'var(--primary-red)' : 'var(--success)'}}>${Math.max(0, restanteMixto).toFixed(2)}</strong></span>
@@ -646,14 +693,14 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             <label style={{display: 'block', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase'}}><i className="fa-solid fa-pen-to-square" style={{color: 'var(--accent)', marginRight: '5px'}}></i> {t('notasVentaOpcional') || 'Notas de la Venta (Opcional)'}</label>
                             <textarea 
                                 value={saleNotes} onChange={e => setSaleNotes(e.target.value)} placeholder={t('ejNotaVenta') || "Escribe aquí instrucciones especiales..."}
-                                style={{width: '100%', padding: '12px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '0.95rem', outline: 'none', resize: 'none', minHeight: '60px'}}
+                                style={{width: '100%', padding: '12px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '0.95rem', outline: 'none', resize: 'none', minHeight: '60px', cursor: 'text'}}
                             />
                         </div>
 
                         <div style={{flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px'}}>
                             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                                 <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1rem'}}><i className="fa-solid fa-bolt" style={{color:'var(--accent)', marginRight: '8px'}}></i> {t('anadirRapido')}</h3>
-                                <button className="btn-action" onClick={() => { setShowCatalogModal(true); setTimeout(() => scannerInputRef.current?.blur(), 50); }} style={{padding: '6px 12px', background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '6px', fontSize: '0.8rem'}}><i className="fa-solid fa-list"></i> {t('verCatalogo')}</button>
+                                <button className="btn-action" onClick={() => { setShowCatalogModal(true); setTimeout(() => scannerInputRef.current?.blur(), 50); }} style={{padding: '6px 12px', background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer'}}><i className="fa-solid fa-list"></i> {t('verCatalogo')}</button>
                             </div>
 
                             {productosAnclados.length === 0 ? (
@@ -664,7 +711,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             ) : (
                                 <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(110px, 1fr))', alignContent: 'start', gap:'8px', overflowY: 'auto', paddingRight: '5px', flex: 1}}>
                                     {productosAnclados.map((prod) => (
-                                        <div key={prod.id} onClick={() => addToCart(prod)} style={{background:'var(--bg-main)', padding:'10px', borderRadius:'10px', textAlign:'center', cursor:'pointer', border:'1px solid var(--border-color)', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', justifyContent: 'center'}} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-color)'}>
+                                        <div key={prod.id} onClick={() => addToCart(prod)} style={{background:'var(--bg-main)', padding:'10px', borderRadius:'10px', textAlign:'center', cursor: 'pointer', border:'1px solid var(--border-color)', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', justifyContent: 'center'}} onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'}} onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color)'}}>
                                             <span style={{fontSize:'0.75rem', display:'block', color: 'var(--text-main)', marginBottom: '2px', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}} title={prod.nombre}>{prod.nombre}</span>
                                             <span style={{color:'var(--success)', fontWeight:'900', fontSize: '0.9rem'}}>${prod.precio.toFixed(2)}</span>
                                         </div>
@@ -691,7 +738,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                             <button onClick={openConfirmModal} className="btn-primary" 
                                 style={{
                                     flex: 3, padding:'20px', border:'none', borderRadius:'12px', 
-                                    fontSize:'1.4rem', fontWeight:'900', cursor:'pointer', 
+                                    fontSize:'1.4rem', fontWeight:'900', cursor: 'pointer', 
                                     boxShadow: '0 10px 25px rgba(211, 47, 47, 0.3)', transition: 'all 0.3s ease'
                                 }}>
                                 <i className="fa-solid fa-cash-register" style={{marginRight: '10px'}}></i> {t('cobrar')}
@@ -708,7 +755,7 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         
                         <div style={{background: 'var(--bg-main)', padding: '25px 30px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                             <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '900'}}><i className="fa-solid fa-file-invoice-dollar" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('resumenVenta') || 'Resumen de la Venta'}</h3>
-                            <button onClick={() => setShowConfirmModal(false)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer'}}>&times;</button>
+                            <button onClick={() => !isProcessingBtn && setShowConfirmModal(false)} disabled={isProcessingBtn} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>&times;</button>
                         </div>
                         
                         <div style={{padding: '30px', maxHeight: '65vh', overflowY: 'auto'}}>
@@ -751,14 +798,15 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                             return (
                                                 <div 
                                                     key={doc.id} 
-                                                    onClick={() => setSelectedDoctor(doc.id)}
+                                                    onClick={() => !isProcessingBtn && setSelectedDoctor(doc.id)}
                                                     style={{
                                                         background: isSelected ? '#0288d1' : 'var(--bg-panel)',
                                                         color: isSelected ? 'white' : 'var(--text-main)',
                                                         border: `2px solid ${isSelected ? '#0288d1' : 'var(--border-color)'}`,
-                                                        borderRadius: '12px', padding: '15px', textAlign: 'center', cursor: 'pointer',
+                                                        borderRadius: '12px', padding: '15px', textAlign: 'center', cursor: isProcessingBtn ? 'not-allowed' : 'pointer',
                                                         boxShadow: isSelected ? '0 4px 15px rgba(2, 136, 209, 0.4)' : 'none',
-                                                        transition: 'all 0.2s ease', transform: isSelected ? 'scale(1.02)' : 'scale(1)'
+                                                        transition: 'all 0.2s ease', transform: isSelected ? 'scale(1.02)' : 'scale(1)',
+                                                        opacity: isProcessingBtn && !isSelected ? 0.5 : 1
                                                     }}
                                                 >
                                                     <i className="fa-solid fa-user-doctor fa-2x" style={{marginBottom: '10px', opacity: isSelected ? 1 : 0.5}}></i>
@@ -779,9 +827,9 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         </div>
 
                         <div style={{padding: '20px 30px', background: 'var(--bg-panel)', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '15px'}}>
-                            <button className="btn-action" onClick={() => setShowConfirmModal(false)} style={{flex: 1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem'}}>{t('cancelar')}</button>
-                            <button id="btn-confirm-checkout" className="btn-primary" onClick={processFinalCheckout} disabled={hasConsulta && !selectedDoctor} style={{flex: 2, padding: '16px', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: (hasConsulta && !selectedDoctor) ? 'not-allowed' : 'pointer', opacity: (hasConsulta && !selectedDoctor) ? 0.5 : 1, boxShadow: '0 5px 15px rgba(211, 47, 47, 0.3)'}}>
-                                <i className="fa-solid fa-check" style={{marginRight: '8px'}}></i> {t('confirmarVenta') || 'Confirmar Pago'}
+                            <button className="btn-action" disabled={isProcessingBtn} onClick={() => setShowConfirmModal(false)} style={{flex: 1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '12px', fontWeight: 'bold', fontSize: '1.05rem', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{t('cancelar')}</button>
+                            <button className="btn-primary" onClick={processFinalCheckout} disabled={(hasConsulta && !selectedDoctor) || isProcessingBtn} style={{flex: 2, padding: '16px', border: 'none', borderRadius: '12px', fontWeight: '900', fontSize: '1.05rem', cursor: ((hasConsulta && !selectedDoctor) || isProcessingBtn) ? 'not-allowed' : 'pointer', opacity: ((hasConsulta && !selectedDoctor) || isProcessingBtn) ? 0.5 : 1, boxShadow: '0 5px 15px rgba(211, 47, 47, 0.3)'}}>
+                                {isProcessingBtn ? <><i className="fa-solid fa-spinner fa-spin" style={{marginRight: '8px'}}></i> {t('procesando') || 'Procesando...'}</> : <><i className="fa-solid fa-check" style={{marginRight: '8px'}}></i> {t('confirmarVenta') || 'Confirmar Pago'}</>}
                             </button>
                         </div>
                     </div>
@@ -854,6 +902,94 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                                     {historialVentas.length === 0 && <tr><td colSpan="8" style={{textAlign: 'center', padding: '40px', color: 'var(--text-muted)'}}><i className="fa-solid fa-receipt fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatosFecha') || 'No se registraron ventas en esta fecha.'}</td></tr>}
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL DEL CATÁLOGO DE PRODUCTOS */}
+            {showCatalogModal && (
+                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
+                    <div className="modal-box" style={{width: '900px', maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', textAlign: 'left', background: 'var(--bg-panel)', padding: '0', borderRadius: '16px', border: '1px solid var(--border-color)', boxShadow: '0 10px 40px rgba(0,0,0,0.2)'}}>
+                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '25px 30px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-main)'}}>
+                            <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-book-open" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('catalogoProductos')}</h3>
+                            <button onClick={() => { setShowCatalogModal(false); scannerInputRef.current?.focus(); }} style={{background: 'var(--bg-panel)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', width: '35px', height: '35px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'}} onMouseEnter={e => {e.currentTarget.style.color = 'var(--primary-red)'; e.currentTarget.style.borderColor = 'var(--primary-red)';}} onMouseLeave={e => {e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-color)';}}><i className="fa-solid fa-xmark"></i></button>
+                        </div>
+                        
+                        <div style={{padding: '20px 30px'}}>
+                            <div style={{position: 'relative'}}>
+                                <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '16px', top: '16px', color: 'var(--text-muted)'}}></i>
+                                <input type="text" placeholder={t('buscarNombreCodigo')} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{width:'100%', padding:'14px 14px 14px 45px', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} autoFocus />
+                            </div>
+                        </div>
+                        
+                        <div style={{overflowY: 'auto', flex: 1, borderTop: '1px solid var(--border-color)', background: 'var(--bg-panel)'}}>
+                            <table className="data-table">
+                                <thead style={{position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-main)', boxShadow: '0 2px 4px rgba(0,0,0,0.05)'}}>
+                                    <tr>
+                                        <th style={{textAlign: 'center', padding: '15px'}}><i className="fa-solid fa-star"></i></th>
+                                        <th>{t('codigo')}</th>
+                                        <th>{t('nombre')}</th>
+                                        <th style={{textAlign: 'center'}}>{t('stock') || 'Stock'}</th>
+                                        <th>{t('precio')}</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredCatalog.map(p => (
+                                        <tr key={p.id}>
+                                            <td style={{textAlign: 'center', padding: '15px'}}>
+                                                <button onClick={() => toggleAccesoRapido(p)} className="btn-action" style={{background: 'transparent', border: 'none', color: p.acceso_rapido ? '#ffb300' : 'var(--text-muted)', fontSize: '1.2rem', cursor: 'pointer', transition: '0.2s'}}>
+                                                    <i className={p.acceso_rapido ? "fa-solid fa-star" : "fa-regular fa-star"}></i>
+                                                </button>
+                                            </td>
+                                            <td style={{color: 'var(--text-muted)', fontFamily: 'monospace'}}>{p.codigo_barras || 'N/A'}</td>
+                                            <td style={{color: 'var(--text-main)', fontSize: '1.05rem'}}><strong>{p.nombre}</strong></td>
+                                            <td style={{textAlign: 'center', fontWeight: 'bold', fontSize: '1.05rem', color: p.tipo === 'servicio' ? '#00b0ff' : (p.stock > 0 ? 'var(--success)' : 'var(--primary-red)')}}>
+                                                {p.tipo === 'servicio' ? <i className="fa-solid fa-infinity" title="Servicio"></i> : p.stock}
+                                            </td>
+                                            <td style={{color: 'var(--success)', fontWeight: '900', fontSize: '1.1rem'}}>${p.precio.toFixed(2)}</td>
+                                            <td style={{textAlign: 'right', paddingRight: '25px'}}>
+                                                <button className="btn-action btn-primary" onClick={() => { addToCart(p); setShowCatalogModal(false); setSearchTerm(''); }} style={{padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', boxShadow: '0 2px 8px rgba(2, 132, 199, 0.2)', cursor: 'pointer'}}>
+                                                    <i className="fa-solid fa-plus" style={{marginRight: '8px'}}></i> {t('agregar')}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {filteredCatalog.length === 0 && <tr><td colSpan="6" style={{textAlign: 'center', padding: '50px', color: 'var(--text-muted)'}}><i className="fa-solid fa-box-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos')}</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL REGISTRO DE CLIENTE EXPRÉS */}
+            {showNewClientModal && (
+                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
+                    <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '40px', borderRadius: '16px', width: '450px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left'}}>
+                        <h3 style={{marginBottom: '25px', color: 'var(--text-main)', fontSize: '1.4rem', textAlign: 'center'}}><i className="fa-solid fa-user-plus" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('registrarPaciente')}</h3>
+                        
+                        <div style={{marginBottom: '15px'}}>
+                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('nombres')} *</label>
+                            <input type="text" value={newClientNombres} onChange={(e) => setNewClientNombres(formatUpperCase(e.target.value))} placeholder="Ej. JOSE ADRIAN" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} autoFocus />
+                        </div>
+
+                        <div style={{marginBottom: '15px'}}>
+                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('apellidos')} *</label>
+                            <input type="text" value={newClientApellidos} onChange={(e) => setNewClientApellidos(formatUpperCase(e.target.value))} placeholder="Ej. ESTRADA URIBE" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} />
+                        </div>
+                        
+                        <div style={{marginBottom: '35px'}}>
+                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('telefono')}</label>
+                            <input type="text" value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)} placeholder="Opcional" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} />
+                        </div>
+                        
+                        <div style={{display:'flex', gap:'15px'}}>
+                            <button className="btn-action" style={{flex:1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer'}} onClick={() => { setShowNewClientModal(false); scannerInputRef.current?.focus(); }}>{t('cancelar')}</button>
+                            <button className="btn-primary" style={{flex:2, padding: '16px', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}} onClick={guardarClienteExpres}>
+                                <i className="fa-solid fa-save"></i> {t('guardarSeleccionar')}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -944,92 +1080,6 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                 </div>
             )}
 
-            {/* MODAL DEL CATÁLOGO DE PRODUCTOS */}
-            {showCatalogModal && (
-                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
-                    <div className="modal-box" style={{width: '900px', maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', textAlign: 'left', background: 'var(--bg-panel)', padding: '0', borderRadius: '16px', border: '1px solid var(--border-color)', boxShadow: '0 10px 40px rgba(0,0,0,0.2)'}}>
-                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '25px 30px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-main)'}}>
-                            <h3 style={{margin: 0, color: 'var(--text-main)', fontSize: '1.4rem'}}><i className="fa-solid fa-book-open" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('catalogoProductos')}</h3>
-                            <button onClick={() => { setShowCatalogModal(false); scannerInputRef.current?.focus(); }} style={{background: 'var(--bg-panel)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', width: '35px', height: '35px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'}} onMouseEnter={e => {e.currentTarget.style.color = 'var(--primary-red)'; e.currentTarget.style.borderColor = 'var(--primary-red)';}} onMouseLeave={e => {e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-color)';}}><i className="fa-solid fa-xmark"></i></button>
-                        </div>
-                        
-                        <div style={{padding: '20px 30px'}}>
-                            <div style={{position: 'relative'}}>
-                                <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '16px', top: '16px', color: 'var(--text-muted)'}}></i>
-                                <input type="text" placeholder={t('buscarNombreCodigo')} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{width:'100%', padding:'14px 14px 14px 45px', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} autoFocus />
-                            </div>
-                        </div>
-                        
-                        <div style={{overflowY: 'auto', flex: 1, borderTop: '1px solid var(--border-color)', background: 'var(--bg-panel)'}}>
-                            <table className="data-table">
-                                <thead style={{position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-main)', boxShadow: '0 2px 4px rgba(0,0,0,0.05)'}}>
-                                    <tr>
-                                        <th style={{textAlign: 'center', padding: '15px'}}><i className="fa-solid fa-star"></i></th>
-                                        <th>{t('codigo')}</th>
-                                        <th>{t('nombre')}</th>
-                                        <th style={{textAlign: 'center'}}>{t('stock') || 'Stock'}</th>
-                                        <th>{t('precio')}</th>
-                                        <th></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredCatalog.map(p => (
-                                        <tr key={p.id}>
-                                            <td style={{textAlign: 'center', padding: '15px'}}>
-                                                <button onClick={() => toggleAccesoRapido(p)} className="btn-action" style={{background: 'transparent', border: 'none', color: p.acceso_rapido ? '#ffb300' : 'var(--text-muted)', fontSize: '1.2rem', cursor: 'pointer', transition: '0.2s'}}>
-                                                    <i className={p.acceso_rapido ? "fa-solid fa-star" : "fa-regular fa-star"}></i>
-                                                </button>
-                                            </td>
-                                            <td style={{color: 'var(--text-muted)', fontFamily: 'monospace'}}>{p.codigo_barras || 'N/A'}</td>
-                                            <td style={{color: 'var(--text-main)', fontSize: '1.05rem'}}><strong>{p.nombre}</strong></td>
-                                            <td style={{textAlign: 'center', fontWeight: 'bold', fontSize: '1.05rem', color: p.tipo === 'servicio' ? '#00b0ff' : (p.stock > 0 ? 'var(--success)' : 'var(--primary-red)')}}>
-                                                {p.tipo === 'servicio' ? <i className="fa-solid fa-infinity" title="Servicio"></i> : p.stock}
-                                            </td>
-                                            <td style={{color: 'var(--success)', fontWeight: '900', fontSize: '1.1rem'}}>${p.precio.toFixed(2)}</td>
-                                            <td style={{textAlign: 'right', paddingRight: '25px'}}>
-                                                <button className="btn-action btn-primary" onClick={() => { addToCart(p); setShowCatalogModal(false); setSearchTerm(''); }} style={{padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', boxShadow: '0 2px 8px rgba(2, 132, 199, 0.2)'}}>
-                                                    <i className="fa-solid fa-plus" style={{marginRight: '8px'}}></i> {t('agregar')}
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {filteredCatalog.length === 0 && <tr><td colSpan="6" style={{textAlign: 'center', padding: '50px', color: 'var(--text-muted)'}}><i className="fa-solid fa-box-open fa-2x" style={{marginBottom: '10px', opacity: 0.5, display: 'block'}}></i> {t('sinDatos')}</td></tr>}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODAL REGISTRO DE CLIENTE EXPRÉS */}
-            {showNewClientModal && (
-                <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
-                    <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '40px', borderRadius: '16px', width: '450px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left'}}>
-                        <h3 style={{marginBottom: '25px', color: 'var(--text-main)', fontSize: '1.4rem', textAlign: 'center'}}><i className="fa-solid fa-user-plus" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('registrarPaciente')}</h3>
-                        
-                        <div style={{marginBottom: '15px'}}>
-                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('nombres')} *</label>
-                            <input type="text" value={newClientNombres} onChange={(e) => setNewClientNombres(formatUpperCase(e.target.value))} placeholder="Ej. JOSE ADRIAN" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} autoFocus />
-                        </div>
-
-                        <div style={{marginBottom: '15px'}}>
-                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('apellidos')} *</label>
-                            <input type="text" value={newClientApellidos} onChange={(e) => setNewClientApellidos(formatUpperCase(e.target.value))} placeholder="Ej. ESTRADA URIBE" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none', textTransform: 'uppercase'}} />
-                        </div>
-                        
-                        <div style={{marginBottom: '35px'}}>
-                            <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('telefono')}</label>
-                            <input type="text" value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)} placeholder="Opcional" style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '1rem', outline: 'none'}} />
-                        </div>
-                        
-                        <div style={{display:'flex', gap:'15px'}}>
-                            <button className="btn-action" style={{flex:1, padding: '16px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 'bold'}} onClick={() => { setShowNewClientModal(false); scannerInputRef.current?.focus(); }}>{t('cancelar')}</button>
-                            <button className="btn-primary" style={{flex:2, padding: '16px', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}} onClick={guardarClienteExpres}><i className="fa-solid fa-save"></i> {t('guardarSeleccionar')}</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {/* 🚀 MODAL DUPLICADO ENCONTRADO */}
             {duplicateClientFound && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
@@ -1059,8 +1109,10 @@ export default function Ventas({ branch = 'napoles', perfilActual }) {
                         </div>
 
                         <div style={{display:'flex', gap:'15px'}}>
-                            <button className="btn-action" style={{flex:1, padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 'bold'}} onClick={() => { setDuplicateClientFound(null); setShowNewClientModal(true); }}>{t('cancelar')}</button>
-                            <button className="btn-primary" style={{flex:2, padding: '14px', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}} onClick={handleSelectDuplicate}><i className="fa-solid fa-check"></i> {t('seleccionarPacienteBtn') || 'Seleccionar Paciente'}</button>
+                            <button className="btn-action" style={{flex:1, padding: '14px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer'}} onClick={() => { setDuplicateClientFound(null); setShowNewClientModal(true); }}>{t('cancelar')}</button>
+                            <button className="btn-primary" style={{flex:2, padding: '14px', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.3)'}} onClick={handleSelectDuplicate}>
+                                <i className="fa-solid fa-check"></i> {t('seleccionarPacienteBtn') || 'Seleccionar Paciente'}
+                            </button>
                         </div>
                     </div>
                 </div>
