@@ -279,25 +279,26 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         });
     };
 
-    // 🚀 VALIDACIÓN ESTRICTA EN GUARDAR HISTORIA CLÍNICA
+    // 🚀 VALIDACIÓN ESTRICTA EN GUARDAR HISTORIA CLÍNICA CON I18N
     const guardarHistoria = async (firmar = false) => {
         if (firmar) {
             let camposFaltantes = [];
             
-            if (!hForm.motivo_consulta?.trim()) camposFaltantes.push('1. Motivo de Consulta');
-            if (!hForm.padecimiento_actual?.trim()) camposFaltantes.push('1. Padecimiento Actual');
+            if (!hForm.motivo_consulta?.trim()) camposFaltantes.push(`1. ${t('motivoConsulta') || 'Motivo de Consulta'}`);
+            if (!hForm.padecimiento_actual?.trim()) camposFaltantes.push(`1. ${t('padecimientoActual') || 'Padecimiento Actual'}`);
             
-            if (!hForm.antecedentes_personales?.trim()) camposFaltantes.push('2. Antecedentes Personales');
-            if (!hForm.antecedentes_familiares?.trim()) camposFaltantes.push('2. Antecedentes Familiares');
+            if (!hForm.antecedentes_personales?.trim()) camposFaltantes.push(`2. ${t('aPersonales') || 'Antecedentes Personales'}`);
+            if (!hForm.antecedentes_familiares?.trim()) camposFaltantes.push(`2. ${t('aFamiliares') || 'Antecedentes Familiares'}`);
             
-            if (!hForm.mtc_pulso_lengua?.trim()) camposFaltantes.push('3. Redacción Diagnóstico MTC (Usa el botón Auto-Redactar)');
+            if (!hForm.mtc_pulso_lengua?.trim()) camposFaltantes.push(`3. ${t('redaccionDiagnosticoMTC') || 'Redacción Diagnóstico MTC (Usa el botón Auto-Redactar)'}`);
             
-            if (!hForm.diagnostico_cie?.trim()) camposFaltantes.push('4. Diagnóstico Clínico (CIE)');
-            if (!hForm.pronostico?.trim()) camposFaltantes.push('4. Pronóstico');
-            if (!hForm.plan_tratamiento?.trim()) camposFaltantes.push('4. Plan de Tratamiento');
+            if (!hForm.diagnostico_cie?.trim()) camposFaltantes.push(`4. ${t('diagnosticoCie') || 'Diagnóstico Clínico (CIE)'}`);
+            if (!hForm.pronostico?.trim()) camposFaltantes.push(`4. ${t('pronostico') || 'Pronóstico'}`);
+            if (!hForm.plan_tratamiento?.trim()) camposFaltantes.push(`4. ${t('planTratamientoPuntos') || 'Plan de Tratamiento'}`);
 
             if (camposFaltantes.length > 0) {
-                const mensajeError = `⚠️ No puedes firmar el expediente. Te faltan llenar los siguientes campos obligatorios:\n\n${camposFaltantes.map(c => `• ${c}`).join('\n')}`;
+                const prefixError = t('alertaFaltanCamposFirma') || '⚠️ No puedes firmar el expediente. Te faltan llenar los siguientes campos obligatorios:';
+                const mensajeError = `${prefixError}\n\n${camposFaltantes.map(c => `• ${c}`).join('\n')}`;
                 return alert(mensajeError);
             }
 
@@ -312,7 +313,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         if (historia?.id) { await supabase.from('historia_clinica').update(payload).eq('id', historia.id); } 
         else { const { data } = await supabase.from('historia_clinica').insert([payload]).select(); setHistoria(data[0]); }
         
-        alert(firmar ? t('documentoFirmado') : (t('guardarBorrador') || 'Borrador Guardado'));
+        alert(firmar ? t('documentoFirmadoExito') || 'Documento firmado con éxito' : t('guardarBorradorExito') || 'Borrador Guardado con éxito');
         if (firmar) setHistoria({ ...historia, ...payload });
     };
 
@@ -359,7 +360,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         if (notaActiva !== 'nueva') { await supabase.from('notas_evolucion').update(payload).eq('id', notaActiva); } 
         else { await supabase.from('notas_evolucion').insert([payload]); }
         
-        alert(firmar ? t('documentoFirmado') : (t('guardarBorrador') || 'Borrador Guardado'));
+        alert(firmar ? t('documentoFirmadoExito') || 'Documento firmado con éxito' : t('guardarBorradorExito') || 'Borrador Guardado con éxito');
         const { data } = await supabase.from('notas_evolucion').select('*').eq('paciente_id', pacienteSeleccionado.id).order('fecha_registro', { ascending: false });
         if (data) { setNotas(data); setNotaActiva(null); }
     };
@@ -427,7 +428,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
         const duplicado = pacientes.find(p => (p.telefono === npTelefono) || (p.nombres === nombresNorm && p.apellidos === apellidosNorm));
         if (duplicado) {
-            return alert(`🚨 ERROR: El paciente "${fullName}" ya existe o el teléfono está registrado en el expediente de ${duplicado.nombre}.`);
+            return alert(t('errorPacienteExistente') || `🚨 ERROR: El paciente "${fullName}" ya existe o el teléfono está registrado en el expediente de ${duplicado.nombre}.`);
         }
 
         const payload = {
@@ -456,7 +457,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         setPacienteSeleccionado(nuevoPaciente);
         setShowNewPatientModal(false);
         setNpNombres(''); setNpApellidos(''); setNpTelefono(''); setNpFechaNacimiento(''); setNpSexo('');
-        alert(t('crearExpediente') || 'Expediente creado exitosamente.');
+        alert(t('creadoExpedienteExito') || 'Expediente creado exitosamente.');
     };
 
     const firmarAdenda = async () => {
@@ -473,7 +474,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
         setAdendasActivas([...adendasActivas, data[0]]);
         setNuevaAdenda('');
-        alert(t('firmarAdenda') || 'Adenda firmada y anexada exitosamente.');
+        alert(t('adendaFirmadaExito') || 'Adenda firmada y anexada exitosamente.');
     };
 
     const generarConsentimiento = async () => {
@@ -494,11 +495,11 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         setConsentimientos([data[0], ...consentimientos]);
         setVistaConsentimiento('lista');
         setCForm({ testigo_1: '', testigo_2: '', acepta: false });
-        alert(t('consentimientoOficial') || 'Consentimiento oficial generado y firmado.');
+        alert(t('consentimientoFirmadoExito') || 'Consentimiento oficial generado y firmado.');
     };
 
     const generarPDFReferencia = () => {
-        if (!rForm.receptor || !rForm.motivo || !rForm.diagnostico) return alert(t('hospitalReceptor') || 'Debes llenar todos los datos de traslado.');
+        if (!rForm.receptor || !rForm.motivo || !rForm.diagnostico) return alert(t('alertaHospitalReceptor') || 'Debes llenar todos los datos de traslado.');
         
         const printWindow = window.open('', '_blank');
         let htmlContent = `
@@ -799,7 +800,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
                                                 <h4 style={{color: 'var(--success)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginTop: '30px', fontSize: '1.2rem'}}><i className="fa-solid fa-stethoscope"></i> {t('conclusionPlan')}</h4>
                                                 <div className="read-box"><span className="label">{t('diagnosticoCie')}:</span> {historia.diagnostico_cie || '-'}</div>
-                                                <div className="read-box"><span className="label">{t('planTratamiento')}:</span> {historia.plan_tratamiento || '-'}</div>
+                                                <div className="read-box"><span className="label">{t('planTratamientoPuntos')}:</span> {historia.plan_tratamiento || '-'}</div>
                                             </div>
                                         </div>
                                     ) : (
@@ -1071,7 +1072,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                     {/* 🚀 INCORPORACIÓN DE MATRICES MTC EN NOTA DE EVOLUCIÓN */}
                                                     {nForm.estado !== 'firmada' && (
                                                         <div style={{display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '10px', background: 'var(--bg-panel)', padding: '20px', borderRadius: '12px', border: '1px dashed var(--border-color)'}}>
-                                                            <h4 style={{margin: '0', color: 'var(--text-main)', fontSize: '1rem'}}><i className="fa-solid fa-yin-yang" style={{color: '#ffb300', marginRight: '8px'}}></i> Exploración Física y MTCh (Opcional)</h4>
+                                                            <h4 style={{margin: '0', color: 'var(--text-main)', fontSize: '1rem'}}><i className="fa-solid fa-yin-yang" style={{color: '#ffb300', marginRight: '8px'}}></i> {t('exploracionFisicaMtc')}</h4>
                                                             
                                                             <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px'}}>
                                                                 <div><label className="form-label" style={{fontSize: '0.75rem'}}>{t('fcLpm')}</label><input type="text" value={signosVitalesNota.fc} onChange={e => setSignosVitalesNota({...signosVitalesNota, fc: e.target.value})} className="form-input" style={{padding: '10px', fontSize: '0.9rem'}} placeholder={t('phFc')} /></div>
@@ -1134,13 +1135,13 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
                                                             <div style={{textAlign: 'right', marginTop: '10px'}}>
                                                                 <button onClick={redactarHallazgosMTChNota} className="btn-primary" style={{padding: '8px 20px', background: '#f59e0b', border: 'none', borderRadius: '8px', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem', boxShadow: '0 4px 10px rgba(245, 158, 11, 0.2)'}}>
-                                                                    <i className="fa-solid fa-wand-magic-sparkles"></i> Auto-Redactar Evolución
+                                                                    <i className="fa-solid fa-wand-magic-sparkles"></i> {t('autoRedactarHallazgos')}
                                                                 </button>
                                                             </div>
                                                         </div>
                                                     )}
 
-                                                    <div><label className="form-label">{t('evolucion')}</label><textarea value={nForm.evolucion} onChange={(e) => setNForm({...nForm, evolucion: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="4" placeholder="Describe los cambios y la evolución clínica..."></textarea></div>
+                                                    <div><label className="form-label">{t('evolucion')}</label><textarea value={nForm.evolucion} onChange={(e) => setNForm({...nForm, evolucion: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="4" placeholder={t('phEvolucion') || "Describe los cambios y la evolución clínica..."}></textarea></div>
                                                     <div><label className="form-label">{t('evaluacionSignos')}</label><textarea value={nForm.evaluacion_signos} onChange={(e) => setNForm({...nForm, evaluacion_signos: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="2"></textarea></div>
                                                     <div><label className="form-label">{t('procedimientoTecnica')}</label><textarea value={nForm.procedimiento_tecnica} onChange={(e) => setNForm({...nForm, procedimiento_tecnica: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="2"></textarea></div>
                                                     <div><label className="form-label">{t('materialAgujas')}</label><textarea value={nForm.material_agujas} onChange={(e) => setNForm({...nForm, material_agujas: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="2"></textarea></div>
@@ -1174,7 +1175,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                         ))}
                                                         <div style={{marginTop: '25px', background: 'var(--bg-main)', padding: '20px', borderRadius: '10px', border: '1px solid var(--border-color)'}}>
                                                             <label style={{fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'block', fontWeight: 'bold'}}>{t('redactarAdenda')}</label>
-                                                            <textarea value={nuevaAdenda} onChange={e => setNuevaAdenda(e.target.value)} placeholder="Escribe la fe de erratas o corrección aquí..." style={{width: '100%', padding: '15px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', minHeight: '60px', marginBottom: '10px'}} />
+                                                            <textarea value={nuevaAdenda} onChange={e => setNuevaAdenda(e.target.value)} placeholder={t('phRedactarAdenda') || "Escribe la fe de erratas o corrección aquí..."} style={{width: '100%', padding: '15px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', minHeight: '60px', marginBottom: '10px'}} />
                                                             <button className="btn-action" onClick={(e) => { e.stopPropagation(); firmarAdenda(); }} style={{background: 'rgba(255, 179, 0, 0.1)', color: '#ea580c', border: '1px solid rgba(255, 179, 0, 0.3)', fontWeight: 'bold', width: '100%', padding: '12px', borderRadius: '8px'}}><i className="fa-solid fa-signature"></i> {t('firmarAdenda')}</button>
                                                         </div>
                                                     </div>
