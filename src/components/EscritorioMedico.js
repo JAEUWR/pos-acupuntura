@@ -77,6 +77,11 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         puntos_acupuntura: '', tiempo_retencion_minutos: '', diagnostico_sesion: '', sesiones_requeridas: '' 
     });
     
+    // 🚀 Matrices independientes para las Notas de Evolución
+    const [pulsoMatrixNota, setPulsoMatrixNota] = useState({});
+    const [lenguaMatrixNota, setLenguaMatrixNota] = useState({});
+    const [signosVitalesNota, setSignosVitalesNota] = useState({ fc: '', fr: '', ta: '', temp: '' });
+
     const [adendasActivas, setAdendasActivas] = useState([]);
     const [nuevaAdenda, setNuevaAdenda] = useState('');
     const [consentimientos, setConsentimientos] = useState([]);
@@ -218,6 +223,50 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         }
     };
 
+    // 🚀 REDACTAR HALLAZGOS EN NOTA DE EVOLUCIÓN
+    const redactarHallazgosMTChNota = () => {
+        let textoFinal = '';
+        
+        const signos = [];
+        if (signosVitalesNota.fc) signos.push(`FC: ${signosVitalesNota.fc} lpm`);
+        if (signosVitalesNota.fr) signos.push(`FR: ${signosVitalesNota.fr} rpm`);
+        if (signosVitalesNota.ta) signos.push(`TA: ${signosVitalesNota.ta} mmHg`);
+        if (signosVitalesNota.temp) signos.push(`Temp: ${signosVitalesNota.temp} °C`);
+        if (signos.length > 0) {
+            setNForm(prev => ({ ...prev, evaluacion_signos: (prev.evaluacion_signos + `\nSignos Vitales: ${signos.join(', ')}.`).trim() }));
+        }
+
+        let tienePulso = false;
+        let txtPulso = `${t('diagnosticoDePulso') || '【 DIAGNÓSTICO DE PULSO 】'}\n`;
+        posicionesPulso.forEach(pos => {
+            const activos = tiposPulsoData.filter(tipo => pulsoMatrixNota[`${pos.id}-${tipo.id}`]).map(t => t.label);
+            if (activos.length > 0) {
+                tienePulso = true;
+                txtPulso += `• ${pos.label}: ${t('pulso') || 'Pulso'} ${activos.join(', ').toLowerCase()}.\n`;
+            }
+        });
+
+        let tieneLengua = false;
+        let txtLengua = `\n${t('diagnosticoDeLengua') || '【 DIAGNÓSTICO DE LENGUA 】'}\n`;
+        zonasLengua.forEach(zona => {
+            const activos = attrsLenguaData.filter(attr => lenguaMatrixNota[`${zona.id}-${attr.id}`]).map(a => a.label);
+            if (activos.length > 0) {
+                tieneLengua = true;
+                txtLengua += `• ${zona.label}: ${activos.join(', ')}.\n`;
+            }
+        });
+
+        if (tienePulso) textoFinal += txtPulso;
+        if (tieneLengua) textoFinal += txtLengua;
+
+        if (textoFinal) {
+            setNForm(prev => ({ ...prev, evolucion: (prev.evolucion + '\n\n' + textoFinal).trim() }));
+            alert(t('hallazgosExito') || 'Hallazgos redactados exitosamente en la caja de texto inferior.');
+        } else {
+            alert(t('hallazgosFallo') || 'Marca al menos una casilla de pulso o lengua para generar la redacción.');
+        }
+    };
+
     const toggleMatrix = (matrixObj, setMatrixObj, key) => {
         setMatrixObj(prev => ({ ...prev, [key]: !prev[key] }));
     };
@@ -230,12 +279,30 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         });
     };
 
+    // 🚀 VALIDACIÓN ESTRICTA EN GUARDAR HISTORIA CLÍNICA
     const guardarHistoria = async (firmar = false) => {
-        if (firmar && (!hForm.motivo_consulta || !hForm.diagnostico_cie || !hForm.plan_tratamiento)) {
-            setFormStep(4);
-            return alert(t('alertaFaltanCamposHistoria') || 'Para firmar, debes llenar al menos el Motivo, Diagnóstico y Plan.');
+        if (firmar) {
+            let camposFaltantes = [];
+            
+            if (!hForm.motivo_consulta?.trim()) camposFaltantes.push('1. Motivo de Consulta');
+            if (!hForm.padecimiento_actual?.trim()) camposFaltantes.push('1. Padecimiento Actual');
+            
+            if (!hForm.antecedentes_personales?.trim()) camposFaltantes.push('2. Antecedentes Personales');
+            if (!hForm.antecedentes_familiares?.trim()) camposFaltantes.push('2. Antecedentes Familiares');
+            
+            if (!hForm.mtc_pulso_lengua?.trim()) camposFaltantes.push('3. Redacción Diagnóstico MTC (Usa el botón Auto-Redactar)');
+            
+            if (!hForm.diagnostico_cie?.trim()) camposFaltantes.push('4. Diagnóstico Clínico (CIE)');
+            if (!hForm.pronostico?.trim()) camposFaltantes.push('4. Pronóstico');
+            if (!hForm.plan_tratamiento?.trim()) camposFaltantes.push('4. Plan de Tratamiento');
+
+            if (camposFaltantes.length > 0) {
+                const mensajeError = `⚠️ No puedes firmar el expediente. Te faltan llenar los siguientes campos obligatorios:\n\n${camposFaltantes.map(c => `• ${c}`).join('\n')}`;
+                return alert(mensajeError);
+            }
+
+            if (!window.confirm(t('confirmarFirmaHistoria') || '¿Estás seguro de firmar? El documento quedará bloqueado e inalterable por ley.')) return;
         }
-        if (firmar && !window.confirm(t('confirmarFirmaHistoria') || '¿Estás seguro de firmar? El documento quedará bloqueado e inalterable por ley.')) return;
 
         const payload = {
             paciente_id: pacienteSeleccionado.id, medico_nombre: perfilActual?.nombre || 'Médico', ...hForm,
@@ -254,6 +321,10 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         setNForm(nota);
         setNuevaAdenda('');
         
+        setPulsoMatrixNota({});
+        setLenguaMatrixNota({});
+        setSignosVitalesNota({ fc: '', fr: '', ta: '', temp: '' });
+        
         if (nota.estado === 'firmada') {
             const { data } = await supabase.from('adendas').select('*').eq('nota_id', nota.id).order('fecha_registro', { ascending: true });
             if (data) setAdendasActivas(data);
@@ -265,6 +336,11 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
     const crearNuevaNota = () => { 
         setNotaActiva('nueva'); 
         setNForm({ evolucion: '', evaluacion_signos: '', procedimiento_tecnica: '', material_agujas: '', resultado_tolerancia: '', plan_indicaciones: '', puntos_acupuntura: '', tiempo_retencion_minutos: '', diagnostico_sesion: '', sesiones_requeridas: '' }); 
+        
+        // Limpiamos las matrices de la nota al crear una nueva
+        setPulsoMatrixNota({});
+        setLenguaMatrixNota({});
+        setSignosVitalesNota({ fc: '', fr: '', ta: '', temp: '' });
     };
 
     const guardarNota = async (firmar = false) => {
@@ -991,7 +1067,80 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                 )}
 
                                                 <div style={{display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '30px'}}>
-                                                    <div><label className="form-label">{t('evolucion')}</label><textarea value={nForm.evolucion} onChange={(e) => setNForm({...nForm, evolucion: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="3"></textarea></div>
+                                                    
+                                                    {/* 🚀 INCORPORACIÓN DE MATRICES MTC EN NOTA DE EVOLUCIÓN */}
+                                                    {nForm.estado !== 'firmada' && (
+                                                        <div style={{display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '10px', background: 'var(--bg-panel)', padding: '20px', borderRadius: '12px', border: '1px dashed var(--border-color)'}}>
+                                                            <h4 style={{margin: '0', color: 'var(--text-main)', fontSize: '1rem'}}><i className="fa-solid fa-yin-yang" style={{color: '#ffb300', marginRight: '8px'}}></i> Exploración Física y MTCh (Opcional)</h4>
+                                                            
+                                                            <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px'}}>
+                                                                <div><label className="form-label" style={{fontSize: '0.75rem'}}>{t('fcLpm')}</label><input type="text" value={signosVitalesNota.fc} onChange={e => setSignosVitalesNota({...signosVitalesNota, fc: e.target.value})} className="form-input" style={{padding: '10px', fontSize: '0.9rem'}} placeholder={t('phFc')} /></div>
+                                                                <div><label className="form-label" style={{fontSize: '0.75rem'}}>{t('frRpm')}</label><input type="text" value={signosVitalesNota.fr} onChange={e => setSignosVitalesNota({...signosVitalesNota, fr: e.target.value})} className="form-input" style={{padding: '10px', fontSize: '0.9rem'}} placeholder={t('phFr')} /></div>
+                                                                <div><label className="form-label" style={{fontSize: '0.75rem'}}>{t('taMmhg')}</label><input type="text" value={signosVitalesNota.ta} onChange={e => setSignosVitalesNota({...signosVitalesNota, ta: e.target.value})} className="form-input" style={{padding: '10px', fontSize: '0.9rem'}} placeholder={t('phTa')} /></div>
+                                                                <div><label className="form-label" style={{fontSize: '0.75rem'}}>{t('tempC')}</label><input type="text" value={signosVitalesNota.temp} onChange={e => setSignosVitalesNota({...signosVitalesNota, temp: e.target.value})} className="form-input" style={{padding: '10px', fontSize: '0.9rem'}} placeholder={t('phTemp')} /></div>
+                                                            </div>
+
+                                                            <div style={{display: 'flex', gap: '20px'}}>
+                                                                <div style={{flex: 1, background: 'var(--bg-main)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '15px'}}>
+                                                                    <h5 style={{margin: '0 0 10px 0', fontSize: '0.9rem', color: 'var(--text-main)'}}><i className="fa-solid fa-heart-pulse" style={{color: 'var(--primary-red)'}}></i> {t('matrizPulso')}</h5>
+                                                                    <div style={{overflowX: 'auto'}}>
+                                                                        <table className="mtc-matrix-table" style={{fontSize: '0.8rem'}}>
+                                                                            <thead><tr><th></th>{posicionesPulso.map(p => <th key={p.id} style={{color: p.color, fontSize: '0.75rem', padding: '5px'}}>{p.label}</th>)}</tr></thead>
+                                                                            <tbody>
+                                                                                {tiposPulsoData.map(tipo => (
+                                                                                    <tr key={tipo.id} className="mtc-row-hover">
+                                                                                        <td className="row-label" style={{fontSize: '0.8rem', padding: '6px'}}>{tipo.label}</td>
+                                                                                        {posicionesPulso.map(pos => {
+                                                                                            const key = `${pos.id}-${tipo.id}`;
+                                                                                            const isChecked = pulsoMatrixNota[key] || false;
+                                                                                            return (
+                                                                                                <td key={key} className="cell-checkbox" style={{padding: '4px'}} onClick={() => toggleMatrix(pulsoMatrixNota, setPulsoMatrixNota, key)}>
+                                                                                                    <div className={`custom-check ${isChecked ? 'checked' : ''}`} style={{width: '18px', height: '18px', backgroundColor: isChecked ? pos.color : 'transparent', borderColor: isChecked ? pos.color : 'var(--border-color)'}}>{isChecked && <i className="fa-solid fa-check" style={{fontSize: '10px'}}></i>}</div>
+                                                                                                </td>
+                                                                                            );
+                                                                                        })}
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div style={{flex: 1, background: 'var(--bg-main)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '15px'}}>
+                                                                    <h5 style={{margin: '0 0 10px 0', fontSize: '0.9rem', color: 'var(--text-main)'}}><i className="fa-solid fa-magnifying-glass-chart" style={{color: '#ffb300'}}></i> {t('matrizLengua')}</h5>
+                                                                    <div style={{overflowX: 'auto'}}>
+                                                                        <table className="mtc-matrix-table" style={{fontSize: '0.8rem'}}>
+                                                                            <thead><tr><th></th>{zonasLengua.map(z => <th key={z.id} style={{color: z.color, fontSize: '0.75rem', padding: '5px'}}>{z.label}</th>)}</tr></thead>
+                                                                            <tbody>
+                                                                                {attrsLenguaData.map(attr => (
+                                                                                    <tr key={attr.id} className="mtc-row-hover">
+                                                                                        <td className="row-label" style={{fontSize: '0.8rem', padding: '6px'}}>{attr.label}</td>
+                                                                                        {zonasLengua.map(zona => {
+                                                                                            const key = `${zona.id}-${attr.id}`;
+                                                                                            const isChecked = lenguaMatrixNota[key] || false;
+                                                                                            return (
+                                                                                                <td key={key} className="cell-checkbox" style={{padding: '4px'}} onClick={() => toggleMatrix(lenguaMatrixNota, setLenguaMatrixNota, key)}>
+                                                                                                    <div className={`custom-check ${isChecked ? 'checked' : ''}`} style={{width: '18px', height: '18px', backgroundColor: isChecked ? zona.color : 'transparent', borderColor: isChecked ? zona.color : 'var(--border-color)'}}>{isChecked && <i className="fa-solid fa-check" style={{fontSize: '10px'}}></i>}</div>
+                                                                                                </td>
+                                                                                            );
+                                                                                        })}
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div style={{textAlign: 'right', marginTop: '10px'}}>
+                                                                <button onClick={redactarHallazgosMTChNota} className="btn-primary" style={{padding: '8px 20px', background: '#f59e0b', border: 'none', borderRadius: '8px', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem', boxShadow: '0 4px 10px rgba(245, 158, 11, 0.2)'}}>
+                                                                    <i className="fa-solid fa-wand-magic-sparkles"></i> Auto-Redactar Evolución
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    <div><label className="form-label">{t('evolucion')}</label><textarea value={nForm.evolucion} onChange={(e) => setNForm({...nForm, evolucion: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="4" placeholder="Describe los cambios y la evolución clínica..."></textarea></div>
                                                     <div><label className="form-label">{t('evaluacionSignos')}</label><textarea value={nForm.evaluacion_signos} onChange={(e) => setNForm({...nForm, evaluacion_signos: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="2"></textarea></div>
                                                     <div><label className="form-label">{t('procedimientoTecnica')}</label><textarea value={nForm.procedimiento_tecnica} onChange={(e) => setNForm({...nForm, procedimiento_tecnica: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="2"></textarea></div>
                                                     <div><label className="form-label">{t('materialAgujas')}</label><textarea value={nForm.material_agujas} onChange={(e) => setNForm({...nForm, material_agujas: e.target.value})} disabled={nForm.estado === 'firmada'} className="form-input" rows="2"></textarea></div>

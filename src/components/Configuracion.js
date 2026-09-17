@@ -82,7 +82,7 @@ export default function Configuracion({ perfilActual }) {
         );
     }
 
-    const modulosDisponibles = ['ventas', 'caja', 'inventario', 'promociones', 'reportes', 'clientes', 'escritorioMedico', 'configuracion', 'doctores'];
+    const modulosDisponibles = ['ventas', 'caja', 'inventario', 'promociones', 'reportes', 'clientes', 'escritorioMedico', 'doctores', 'configuracion'];
 
     return (
         <div className="view-section active" style={{ overflowY: 'auto', flexDirection: 'column', gap: '25px', paddingRight: '5px' }}>
@@ -117,12 +117,19 @@ export default function Configuracion({ perfilActual }) {
                             <tbody>
                                 {usuarios.map(user => {
                                     const isGlobalAdmin = user.rol === 'admin';
+                                    const isMedico = user.rol === 'medico';
                                     return (
                                         <tr key={user.id}>
                                             <td style={{padding: '20px 30px'}}>
                                                 <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
-                                                    <div style={{width: '45px', height: '45px', borderRadius: '50%', background: isGlobalAdmin ? 'rgba(211, 47, 47, 0.1)' : 'var(--bg-dark)', color: isGlobalAdmin ? 'var(--primary-red)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', border: isGlobalAdmin ? '1px solid rgba(211, 47, 47, 0.3)' : '1px solid var(--border-color)'}}>
-                                                        <i className={isGlobalAdmin ? "fa-solid fa-user-tie" : "fa-solid fa-user"}></i>
+                                                    <div style={{
+                                                        width: '45px', height: '45px', borderRadius: '50%', 
+                                                        background: isGlobalAdmin ? 'rgba(211, 47, 47, 0.1)' : (isMedico ? 'rgba(2, 136, 209, 0.1)' : 'var(--bg-dark)'), 
+                                                        color: isGlobalAdmin ? 'var(--primary-red)' : (isMedico ? '#0288d1' : 'var(--text-muted)'), 
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', 
+                                                        border: isGlobalAdmin ? '1px solid rgba(211, 47, 47, 0.3)' : (isMedico ? '1px solid rgba(2, 136, 209, 0.3)' : '1px solid var(--border-color)')
+                                                    }}>
+                                                        <i className={isGlobalAdmin ? "fa-solid fa-user-tie" : (isMedico ? "fa-solid fa-user-doctor" : "fa-solid fa-user")}></i>
                                                     </div>
                                                     <div>
                                                         <strong style={{color: 'var(--text-main)', fontSize: '1.05rem', display: 'block', marginBottom: '4px'}}>{user.nombre}</strong>
@@ -140,6 +147,7 @@ export default function Configuracion({ perfilActual }) {
                                                     style={{ background: 'var(--bg-main)', color: 'var(--text-main)', padding: '10px 15px', borderRadius: '8px', border: '1px solid var(--border-color)', outline: 'none', cursor: user.id === perfilActual.id ? 'not-allowed' : 'pointer', opacity: user.id === perfilActual.id ? 0.6 : 1 }} 
                                                 >
                                                     <option value="recepcionista">{t('recepcionista') || 'Recepcionista'}</option>
+                                                    <option value="medico">{t('medico') || 'Médico'}</option>
                                                     <option value="gerente">{t('gerente') || 'Gerente'}</option>
                                                     <option value="admin">{t('adminGlobal') || 'Administrador Global'}</option>
                                                 </select>
@@ -199,7 +207,7 @@ export default function Configuracion({ perfilActual }) {
                 )}
             </div>
 
-            {/* MODAL DE ALTA DE EMPLEADO (GLASSMORPHISM) */}
+            {/* MODAL DE ALTA DE EMPLEADO */}
             {showModal && (
                 <div className="modal-overlay" style={{display: 'flex', position: 'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', zIndex:1000, justifyContent:'center', alignItems:'center'}}>
                     <div className="modal-box" style={{background: 'var(--bg-panel)', padding: '40px', borderRadius: '16px', width: '480px', border: '1px solid var(--accent)', boxShadow: '0 10px 40px rgba(2, 132, 199, 0.15)', textAlign: 'left'}}>
@@ -227,6 +235,7 @@ export default function Configuracion({ perfilActual }) {
                                 <label style={{fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 'bold'}}>{t('rol') || 'Rol'}</label>
                                 <select value={newRole} onChange={(e) => setNewRole(e.target.value)} style={{width:'100%', padding:'14px', background:'var(--bg-main)', color:'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '10px', outline: 'none'}}>
                                     <option value="recepcionista">{t('recepcionista') || 'Recepcionista'}</option>
+                                    <option value="medico">{t('medico') || 'Médico'}</option>
                                     <option value="gerente">{t('gerente') || 'Gerente'}</option>
                                     <option value="admin">{t('adminGlobal') || 'Administrador Global'}</option>
                                 </select>
