@@ -82,7 +82,17 @@ export default function Configuracion({ perfilActual }) {
         );
     }
 
-    const modulosDisponibles = ['ventas', 'inventario', 'reportes', 'clientes', 'escritorioMedico', 'doctores', 'configuracion'];
+    // 🚀 Módulos exactos basados en la estructura del Sidebar
+    const modulosDisponibles = [
+        { key: 'ventas', label: t('puntoVenta') || 'Punto de Venta' },
+        { key: 'finanzas', label: t('movimientosFinanzas') || 'Reporte Financiero' },
+        { key: 'calendar', label: t('agendaClinica') || 'Agenda Clínica' },
+        { key: 'doctores', label: t('consumosMedicos') || 'Consumos Médicos' },
+        { key: 'clientes', label: t('clientes') || 'Cliente' },
+        { key: 'escritorioMedico', label: t('escritorioMedico') || 'Escritorio Médico' },
+        { key: 'inventario', label: t('inventario') || 'Inventario' },
+        { key: 'configuracion', label: t('configuracion') || 'Configuración' }
+    ];
 
     return (
         <div className="view-section active" style={{ overflowY: 'auto', flexDirection: 'column', gap: '25px', paddingRight: '5px' }}>
@@ -167,13 +177,13 @@ export default function Configuracion({ perfilActual }) {
                                             <td>
                                                 {/* PÍLDORAS INTELIGENTES DE PERMISOS */}
                                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                                    {modulosDisponibles.map(mod => {
-                                                        const hasPerm = (user.permisos || []).includes(mod);
+                                                    {modulosDisponibles.map(modulo => {
+                                                        const hasPerm = (user.permisos || []).includes(modulo.key);
                                                         const isChecked = isGlobalAdmin || hasPerm;
                                                         
                                                         return (
                                                             <label 
-                                                                key={mod} 
+                                                                key={modulo.key} 
                                                                 style={{ 
                                                                     display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 'bold',
                                                                     padding: '6px 12px', borderRadius: '20px', 
@@ -188,11 +198,11 @@ export default function Configuracion({ perfilActual }) {
                                                                     type="checkbox" 
                                                                     checked={isChecked} 
                                                                     disabled={isGlobalAdmin}
-                                                                    onChange={() => togglePermiso(user.id, user.permisos, mod)}
+                                                                    onChange={() => togglePermiso(user.id, user.permisos, modulo.key)}
                                                                     style={{ display: 'none' }} // Ocultamos el checkbox nativo
                                                                 />
                                                                 <i className={isGlobalAdmin ? "fa-solid fa-lock" : (isChecked ? "fa-solid fa-check" : "fa-solid fa-plus")}></i>
-                                                                {t(mod) || mod.charAt(0).toUpperCase() + mod.slice(1)}
+                                                                {modulo.label}
                                                             </label>
                                                         )
                                                     })}
