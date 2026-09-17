@@ -74,6 +74,36 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
         checkFondoDia();
     }, [branch, activeView]);
 
+    // 🚀 LÓGICA ESTRICTA DE PERMISOS (RBAC)
+    const hasAccess = (moduleName) => {
+        if (!perfil) return false;
+        if (perfil.rol === 'admin') return true; // Admin Global tiene acceso a TODO
+        
+        // Verifica si el array de permisos existe y si incluye el módulo
+        if (Array.isArray(perfil.permisos)) {
+            return perfil.permisos.includes(moduleName);
+        }
+        
+        return false; // Bloqueo por defecto si algo falla
+    };
+
+    // Al montar el componente o cambiar de perfil, asegurarse de que la vista activa sea válida
+    useEffect(() => {
+        if (perfil && !hasAccess(activeView)) {
+            // Busca la primera vista a la que sí tenga acceso para redirigirlo
+            const viewsDisponibles = ['ventas', 'finanzas', 'calendar', 'doctores', 'clientes', 'escritorioMedico', 'inventario', 'configuracion'];
+            for (let view of viewsDisponibles) {
+                if (hasAccess(view)) {
+                    setActiveView(view);
+                    return;
+                }
+            }
+        }
+    }, [perfil]);
+
+    // 🚀 VARIABLE DE BLOQUEO DE SUCURSAL
+    const canChangeBranch = perfil?.rol === 'admin' || perfil?.sucursal_id === null;
+
     return (
         <div className="app-container oriental-theme" suppressHydrationWarning>
             
@@ -103,33 +133,60 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                     </div>
 
                     <div style={{ flex: 1, padding: isSidebarOpen ? '20px 15px' : '20px 10px', display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', overflowX: 'hidden', transition: 'padding 0.4s' }}>
-                        <button onClick={() => setActiveView('ventas')} className={`nav-btn ${activeView === 'ventas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('puntoVenta') || 'Punto de Venta') : ''}>
-                            <i className="fa-solid fa-cash-register"></i> <span className="nav-label">{t('puntoVenta') || 'Punto de Venta'}</span>
-                        </button>
-                        <button onClick={() => setActiveView('finanzas')} className={`nav-btn ${activeView === 'finanzas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('movimientosFinanzas') || 'Movimientos y Finanzas') : ''}>
-                            <i className="fa-solid fa-chart-pie"></i> <span className="nav-label">{t('movimientosFinanzas') || 'Movimientos y Finanzas'}</span>
-                        </button>
-                        <button onClick={() => setActiveView('calendar')} className={`nav-btn ${activeView === 'calendar' ? 'active' : ''}`} title={!isSidebarOpen ? (t('agendaClinica') || 'Agenda Clínica') : ''}>
-                            <i className="fa-regular fa-calendar-check"></i> <span className="nav-label">{t('agendaClinica') || 'Agenda Clínica'}</span>
-                        </button>
-                        <button onClick={() => setActiveView('doctores')} className={`nav-btn ${activeView === 'doctores' ? 'active' : ''}`} title={!isSidebarOpen ? (t('consumosMedicos') || 'Consumos Médicos') : ''}>
-                            <i className="fa-solid fa-syringe"></i> <span className="nav-label">{t('consumosMedicos') || 'Consumos Médicos'}</span>
-                        </button>
-                        <button onClick={() => setActiveView('clientes')} className={`nav-btn ${activeView === 'clientes' ? 'active' : ''}`} title={!isSidebarOpen ? (t('clientes') || 'Recepción') : ''}>
-                            <i className="fa-solid fa-users"></i> <span className="nav-label">{t('clientes') || 'Recepción'}</span>
-                        </button>
-                        <button onClick={() => setActiveView('escritorioMedico')} className={`nav-btn ${activeView === 'escritorioMedico' ? 'active' : ''}`} title={!isSidebarOpen ? (t('escritorioMedico') || 'Escritorio Médico') : ''}>
-                            <i className="fa-solid fa-user-doctor"></i> <span className="nav-label">{t('escritorioMedico') || 'Escritorio Médico'}</span>
-                        </button>
-                        <button onClick={() => setActiveView('inventario')} className={`nav-btn ${activeView === 'inventario' ? 'active' : ''}`} title={!isSidebarOpen ? (t('inventario') || 'Inventario y Promos') : ''}>
-                            <i className="fa-solid fa-boxes-stacked"></i> <span className="nav-label">{t('inventario') || 'Inventario y Promos'}</span>
-                        </button>
+                        
+                        {/* 🚀 BOTONES RENDERIZADOS CONDICIONALMENTE BASADOS EN PERMISOS */}
+                        {hasAccess('ventas') && (
+                            <button onClick={() => setActiveView('ventas')} className={`nav-btn ${activeView === 'ventas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('puntoVenta') || 'Punto de Venta') : ''}>
+                                <i className="fa-solid fa-cash-register"></i> <span className="nav-label">{t('puntoVenta') || 'Punto de Venta'}</span>
+                            </button>
+                        )}
+                        
+                        {hasAccess('finanzas') && (
+                            <button onClick={() => setActiveView('finanzas')} className={`nav-btn ${activeView === 'finanzas' ? 'active' : ''}`} title={!isSidebarOpen ? (t('movimientosFinanzas') || 'Movimientos y Finanzas') : ''}>
+                                <i className="fa-solid fa-chart-pie"></i> <span className="nav-label">{t('movimientosFinanzas') || 'Movimientos y Finanzas'}</span>
+                            </button>
+                        )}
+                        
+                        {hasAccess('calendar') && (
+                            <button onClick={() => setActiveView('calendar')} className={`nav-btn ${activeView === 'calendar' ? 'active' : ''}`} title={!isSidebarOpen ? (t('agendaClinica') || 'Agenda Clínica') : ''}>
+                                <i className="fa-regular fa-calendar-check"></i> <span className="nav-label">{t('agendaClinica') || 'Agenda Clínica'}</span>
+                            </button>
+                        )}
+                        
+                        {hasAccess('doctores') && (
+                            <button onClick={() => setActiveView('doctores')} className={`nav-btn ${activeView === 'doctores' ? 'active' : ''}`} title={!isSidebarOpen ? (t('consumosMedicos') || 'Consumos Médicos') : ''}>
+                                <i className="fa-solid fa-syringe"></i> <span className="nav-label">{t('consumosMedicos') || 'Consumos Médicos'}</span>
+                            </button>
+                        )}
+                        
+                        {hasAccess('clientes') && (
+                            <button onClick={() => setActiveView('clientes')} className={`nav-btn ${activeView === 'clientes' ? 'active' : ''}`} title={!isSidebarOpen ? (t('clientes') || 'Recepción') : ''}>
+                                <i className="fa-solid fa-users"></i> <span className="nav-label">{t('clientes') || 'Recepción'}</span>
+                            </button>
+                        )}
+                        
+                        {hasAccess('escritorioMedico') && (
+                            <button onClick={() => setActiveView('escritorioMedico')} className={`nav-btn ${activeView === 'escritorioMedico' ? 'active' : ''}`} title={!isSidebarOpen ? (t('escritorioMedico') || 'Escritorio Médico') : ''}>
+                                <i className="fa-solid fa-user-doctor"></i> <span className="nav-label">{t('escritorioMedico') || 'Escritorio Médico'}</span>
+                            </button>
+                        )}
+                        
+                        {hasAccess('inventario') && (
+                            <button onClick={() => setActiveView('inventario')} className={`nav-btn ${activeView === 'inventario' ? 'active' : ''}`} title={!isSidebarOpen ? (t('inventario') || 'Inventario y Promos') : ''}>
+                                <i className="fa-solid fa-boxes-stacked"></i> <span className="nav-label">{t('inventario') || 'Inventario y Promos'}</span>
+                            </button>
+                        )}
+
                     </div>
 
                     <div style={{ padding: isSidebarOpen ? '20px 15px' : '20px 10px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px', transition: 'padding 0.4s' }}>
-                        <button onClick={() => setActiveView('configuracion')} className={`nav-btn ${activeView === 'configuracion' ? 'active' : ''}`} title={!isSidebarOpen ? (t('configuracion') || 'Configuración') : ''}>
-                            <i className="fa-solid fa-gear"></i> <span className="nav-label">{t('configuracion') || 'Configuración'}</span>
-                        </button>
+                        
+                        {hasAccess('configuracion') && (
+                            <button onClick={() => setActiveView('configuracion')} className={`nav-btn ${activeView === 'configuracion' ? 'active' : ''}`} title={!isSidebarOpen ? (t('configuracion') || 'Configuración') : ''}>
+                                <i className="fa-solid fa-gear"></i> <span className="nav-label">{t('configuracion') || 'Configuración'}</span>
+                            </button>
+                        )}
+
                         <button onClick={handleLogout} className="nav-btn" style={{color: 'var(--primary-red)'}} title={!isSidebarOpen ? (t('cerrarSesion') || 'Cerrar Sesión') : ''}>
                             <i className="fa-solid fa-arrow-right-from-bracket"></i> <span className="nav-label">{t('cerrarSesion') || 'Cerrar Sesión'}</span>
                         </button>
@@ -148,14 +205,16 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                     <div className="content-on-top" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                         <div style={{ position: 'relative' }}>
                             <div 
-                                onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
+                                onClick={() => { if(canChangeBranch) setIsBranchDropdownOpen(!isBranchDropdownOpen); }}
                                 style={{ 
                                     background: 'var(--bg-dark)', padding: '10px 20px', borderRadius: '30px', 
                                     border: isBranchDropdownOpen ? '1px solid var(--primary-red)' : '1px solid var(--border-color)', 
-                                    display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', 
+                                    display: 'flex', alignItems: 'center', gap: '12px', cursor: canChangeBranch ? 'pointer' : 'default', 
                                     boxShadow: isBranchDropdownOpen ? '0 0 0 3px rgba(211, 47, 47, 0.15)' : 'var(--shadow-sm)', 
-                                    transition: 'all 0.3s ease', minWidth: '220px', justifyContent: 'space-between'
+                                    transition: 'all 0.3s ease', minWidth: '220px', justifyContent: 'space-between',
+                                    opacity: canChangeBranch ? 1 : 0.8
                                 }}
+                                title={!canChangeBranch ? 'Tienes asignada una sucursal fija.' : ''}
                             >
                                 <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
                                     <i className="fa-solid fa-location-dot" style={{ color: 'var(--primary-red)', fontSize: '1.1rem' }}></i>
@@ -163,10 +222,15 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                                         {branchesOptions[branch]}
                                     </span>
                                 </div>
-                                <i className="fa-solid fa-chevron-down" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.3s ease', transform: isBranchDropdownOpen ? 'rotate(180deg)' : 'rotate(0)' }}></i>
+                                {canChangeBranch ? (
+                                    <i className="fa-solid fa-chevron-down" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.3s ease', transform: isBranchDropdownOpen ? 'rotate(180deg)' : 'rotate(0)' }}></i>
+                                ) : (
+                                    <i className="fa-solid fa-lock" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', opacity: 0.5 }}></i>
+                                )}
                             </div>
 
-                            {isBranchDropdownOpen && (
+                            {/* SOLO MOSTRAR EL DROPDOWN SI EL USUARIO TIENE PERMISOS GLOBALES */}
+                            {canChangeBranch && isBranchDropdownOpen && (
                                 <>
                                     <div style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20}} onClick={() => setIsBranchDropdownOpen(false)}></div>
                                     <div style={{ 
@@ -225,7 +289,7 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                 <div className="content-on-top" style={{ flex: 1, padding: '20px', overflowY: (faltaFondo && activeView === 'ventas') ? 'hidden' : 'auto', position: 'relative' }}>
                     
                     {/* 🚀 EL BLOQUEO: Solo aparece si no hay fondo y están intentando ver Ventas */}
-                    {faltaFondo && activeView === 'ventas' && (
+                    {faltaFondo && activeView === 'ventas' && hasAccess('ventas') && (
                         <div style={{
                             position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                             background: 'rgba(15, 17, 26, 0.65)', backdropFilter: 'blur(8px)',
@@ -262,27 +326,40 @@ function DashboardApp({ session, perfil, branch, setBranch }) {
                         </div>
                     )}
 
-                    {/* 🚀 ENVOLTORIO CONDICIONAL PARA VENTAS */}
-                    {activeView === 'ventas' && (
-                        <div style={{ 
-                            height: '100%', 
-                            opacity: faltaFondo ? 0.3 : 1, 
-                            filter: faltaFondo ? 'blur(6px)' : 'none', 
-                            pointerEvents: faltaFondo ? 'none' : 'auto',
-                            transition: 'all 0.4s ease',
-                            userSelect: faltaFondo ? 'none' : 'auto'
-                        }}>
-                            <Ventas branch={branch} perfilActual={perfil} />
+                    {/* 🚀 VERIFICACIÓN DE ACCESO ANTES DE RENDERIZAR */}
+                    {hasAccess(activeView) ? (
+                        <>
+                            {activeView === 'ventas' && (
+                                <div style={{ 
+                                    height: '100%', 
+                                    opacity: faltaFondo ? 0.3 : 1, 
+                                    filter: faltaFondo ? 'blur(6px)' : 'none', 
+                                    pointerEvents: faltaFondo ? 'none' : 'auto',
+                                    transition: 'all 0.4s ease',
+                                    userSelect: faltaFondo ? 'none' : 'auto'
+                                }}>
+                                    <Ventas branch={branch} perfilActual={perfil} />
+                                </div>
+                            )}
+
+                            {activeView === 'finanzas' && <Finanzas branch={branch} perfilActual={perfil} autoOpenFondo={autoOpenFondo} setAutoOpenFondo={setAutoOpenFondo} />}
+                            {activeView === 'calendar' && <Calendar branch={branch} perfilActual={perfil} />}
+                            {activeView === 'doctores' && <ConsumosMedicos branch={branch} />}
+                            {activeView === 'inventario' && <Inventario branch={branch} perfilActual={perfil} />}
+                            {activeView === 'clientes' && <Clientes branch={branch} perfilActual={perfil}/>}
+                            {activeView === 'escritorioMedico' && <EscritorioMedico branch={branch} perfilActual={perfil} />}
+                            {activeView === 'configuracion' && <Configuracion perfilActual={perfil} />}
+                        </>
+                    ) : (
+                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                            <div style={{ textAlign: 'center', background: 'var(--bg-panel)', padding: '50px', borderRadius: '20px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
+                                <i className="fa-solid fa-shield-halved fa-4x" style={{ color: 'var(--primary-red)', marginBottom: '20px' }}></i>
+                                <h2 style={{color: 'var(--text-main)'}}>Acceso Denegado</h2>
+                                <p style={{color: 'var(--text-muted)'}}>No tienes permisos para ver el módulo de "{activeView}".</p>
+                            </div>
                         </div>
                     )}
 
-                    {activeView === 'finanzas' && <Finanzas branch={branch} perfilActual={perfil} autoOpenFondo={autoOpenFondo} setAutoOpenFondo={setAutoOpenFondo} />}
-                    {activeView === 'calendar' && <Calendar branch={branch} perfilActual={perfil} />}
-                    {activeView === 'doctores' && <ConsumosMedicos branch={branch} />}
-                    {activeView === 'inventario' && <Inventario branch={branch} perfilActual={perfil} />}
-                    {activeView === 'clientes' && <Clientes branch={branch} perfilActual={perfil}/>}
-                    {activeView === 'escritorioMedico' && <EscritorioMedico branch={branch} perfilActual={perfil} />}
-                    {activeView === 'configuracion' && <Configuracion perfilActual={perfil} />}
                 </div>
             </div>
 
@@ -362,21 +439,29 @@ export default function Home() {
         return () => subscription.unsubscribe();
     }, []);
 
+    // 🚀 OBTENER PERFIL Y FORZAR SUCURSAL SI ESTÁ RESTRINGIDO
     const fetchPerfil = async (userId) => {
         const { data } = await supabase.from('perfiles_usuarios').select('*').eq('id', userId).single();
         if (data) {
             setPerfil(data);
             
-            // LÓGICA DE MEMORIA INTELIGENTE
-            const savedBranch = localStorage.getItem('hk_branch_memory');
-            
-            if (savedBranch) {
-                setBranch(savedBranch);
-            } else if (data.sucursal_id) {
-                const branchMapReverse = { 1: 'napoles', 2: 'obrera', 3: 'pedregal' };
-                const defaultBranch = branchMapReverse[data.sucursal_id] || 'napoles';
-                setBranch(defaultBranch);
-                localStorage.setItem('hk_branch_memory', defaultBranch);
+            const isGlobal = data.rol === 'admin' || data.sucursal_id === null;
+            const branchMapReverse = { 1: 'napoles', 2: 'obrera', 3: 'pedregal' };
+            const assignedBranch = branchMapReverse[data.sucursal_id] || 'napoles';
+
+            if (!isGlobal) {
+                // Si está restringido, FUERZA la sucursal de la base de datos e ignora la memoria local
+                setBranch(assignedBranch);
+                localStorage.setItem('hk_branch_memory', assignedBranch);
+            } else {
+                // Si es global, respeta su última selección de memoria
+                const savedBranch = localStorage.getItem('hk_branch_memory');
+                if (savedBranch) {
+                    setBranch(savedBranch);
+                } else {
+                    setBranch(assignedBranch);
+                    localStorage.setItem('hk_branch_memory', assignedBranch);
+                }
             }
         }
         setLoadingAuth(false);

@@ -9,9 +9,17 @@ export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
         await supabase.auth.signOut();
     };
 
-    const permisos = perfil?.permisos || [];
-    const isAdmin = rol === 'admin';
-    const hasAccess = (view) => isAdmin || permisos.includes(view);
+    // 🚀 LÓGICA DE PERMISOS ESTRICTA Y SEGURA
+    // Si perfil.permisos es undefined (porque aún está cargando), devolvemos false por seguridad,
+    // excepto si es el Admin Global, que tiene llave maestra para todo.
+    const hasAccess = (moduleName) => {
+        if (rol === 'admin') return true;
+        
+        // Si el perfil aún no ha cargado sus permisos, bloqueamos el acceso por defecto
+        if (!perfil || !Array.isArray(perfil.permisos)) return false;
+        
+        return perfil.permisos.includes(moduleName);
+    };
 
     const getBtnStyle = (viewName) => {
         const isActive = activeView === viewName;
@@ -66,7 +74,7 @@ export default function Sidebar({ activeView, setActiveView, rol, perfil }) {
                     </button>
                 )}
                 
-                {/* 🚀 EL BOTÓN DE AGENDA YA TIENE SU PROPIO ÍCONO Y TEXTO */}
+                {/* 🚀 EL BOTÓN DE AGENDA */}
                 {hasAccess('calendar') && (
                     <button style={getBtnStyle('calendar')} onClick={() => setActiveView('calendar')}>
                         <i className="fa-regular fa-calendar-check" style={{ width: '20px', textAlign: 'center', fontSize: '1.1rem' }}></i> {t('agendaClinica') || 'Agenda Clínica'}
