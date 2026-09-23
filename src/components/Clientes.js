@@ -253,7 +253,7 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
                 if (errAlertas) console.error("Error alertas:", errAlertas);
             }
 
-            // 3. Guardar Historia Clínica (Siempre como Borrador, SIN sucursal_id que causaba error)
+            // 3. Guardar Historia Clínica (Siempre como Borrador)
             const payloadHistoria = {
                 paciente_id: currentPacienteId,
                 medico_nombre: perfilActual?.nombre || 'Recepción', 
@@ -743,7 +743,10 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
                                         </div>
                                         
                                         <div><label className="form-label">{t('curp') || 'CURP'}</label><input disabled={isProcessingBtn} type="text" value={curp} onChange={e => setCurp(formatUpperCase(e.target.value))} className="form-input" maxLength="18" placeholder={t('phCurp') || "18 Caracteres alfanuméricos"} /></div>
-                                        <div><label className="form-label">{t('sinCurp') || 'Sin CURP'} (Motivo)</label><input disabled={isProcessingBtn} type="text" value={motivoSinCurp} onChange={e => setMotivoSinCurp(formatUpperCase(e.target.value))} className="form-input" placeholder={t('phMotivoCurp') || "Ej. EXTRANJERO..."} disabled={curp.length > 0 || isProcessingBtn} style={{opacity: curp.length > 0 ? 0.5 : 1}} /></div>
+                                        <div>
+                                            <label className="form-label">{t('sinCurp') || 'Sin CURP'} (Motivo)</label>
+                                            <input type="text" value={motivoSinCurp} onChange={e => setMotivoSinCurp(formatUpperCase(e.target.value))} className="form-input" placeholder={t('phMotivoCurp') || "Ej. EXTRANJERO..."} disabled={curp.length > 0 || isProcessingBtn} style={{opacity: curp.length > 0 ? 0.5 : 1}} />
+                                        </div>
                                         
                                         <div><label className="form-label">{t('ocupacion') || 'Ocupación'}</label><input disabled={isProcessingBtn} type="text" value={ocupacion} onChange={e => setOcupacion(formatUpperCase(e.target.value))} className="form-input" placeholder={t('phOcupacion') || "Ej. ESTUDIANTE..."} /></div>
                                         <div><label className="form-label">{t('correo') || 'Correo'}</label><input disabled={isProcessingBtn} type="email" value={correo} onChange={e => setCorreo(e.target.value.toLowerCase())} className="form-input" placeholder={t('phCorreo') || "correo@ejemplo.com"} /></div>
@@ -935,14 +938,14 @@ export default function Clientes({ branch = 'napoles', perfilActual }) {
                         <p style={{fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '30px'}}>{t('camposMinimosRequeridos') || 'Campos mínimos requeridos para abrir expediente'}</p>
                         
                         <div style={{display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '35px'}}>
-                            <div><label className="form-label">{t('nombres') || 'Nombres'}</label><input disabled={isProcessingBtn} type="text" value={npNombres} onChange={e => setNpNombres(formatUpperCase(e.target.value))} className="form-input" style={{textTransform: 'uppercase'}} autoFocus /></div>
-                            <div><label className="form-label">{t('apellidos') || 'Apellidos'}</label><input disabled={isProcessingBtn} type="text" value={npApellidos} onChange={e => setApellidos(formatUpperCase(e.target.value))} className="form-input" style={{textTransform: 'uppercase'}} /></div>
-                            <div><label className="form-label">{t('telefono') || 'Teléfono'}</label><input disabled={isProcessingBtn} type="text" value={npTelefono} onChange={e => setNpTelefono(e.target.value)} className="form-input" /></div>
+                            <div><label className="form-label">{t('nombres') || 'Nombres'}</label><input type="text" value={npNombres} onChange={e => setNpNombres(formatUpperCase(e.target.value))} className="form-input" style={{textTransform: 'uppercase'}} autoFocus /></div>
+                            <div><label className="form-label">{t('apellidos') || 'Apellidos'}</label><input type="text" value={npApellidos} onChange={e => setNpApellidos(formatUpperCase(e.target.value))} className="form-input" style={{textTransform: 'uppercase'}} /></div>
+                            <div><label className="form-label">{t('telefono') || 'Teléfono'}</label><input type="text" value={npTelefono} onChange={e => setNpTelefono(e.target.value)} className="form-input" /></div>
                             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
-                                <div><label className="form-label">{t('fechaNac') || 'Fecha de Nac.'}</label><input disabled={isProcessingBtn} type="date" value={npFechaNacimiento} onChange={e => setNpFechaNacimiento(e.target.value)} className="form-input" /></div>
+                                <div><label className="form-label">{t('fechaNac') || 'Fecha de Nac.'}</label><input type="date" value={npFechaNacimiento} onChange={e => setNpFechaNacimiento(e.target.value)} className="form-input" /></div>
                                 <div>
                                     <label className="form-label">{t('sexo') || 'Sexo'}</label>
-                                    <select disabled={isProcessingBtn} value={npSexo} onChange={e => setNpSexo(e.target.value)} className="form-input">
+                                    <select value={npSexo} onChange={e => setNpSexo(e.target.value)} className="form-input">
                                         <option value="">{t('seleccionar') || 'Seleccionar'}</option>
                                         <option value="Femenino">{t('femenino') || 'Femenino'}</option>
                                         <option value="Masculino">{t('masculino') || 'Masculino'}</option>
