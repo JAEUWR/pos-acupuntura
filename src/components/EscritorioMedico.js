@@ -82,7 +82,8 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         const { data: sucursales } = await supabase.from('sucursales').select('id, nombre').order('id');
         if (sucursales) setSucursalesDB(sucursales);
 
-        const { data } = await supabase.from('clientes').select('*, alertas_clinicas(id, tipo_alerta, descripcion, nivel_gravedad, activa)').order('nombre', { ascending: true });
+        // 🚀 Carga robusta de la historia clínica en la primera consulta
+        const { data } = await supabase.from('clientes').select('*, alertas_clinicas(id, tipo_alerta, descripcion, nivel_gravedad, activa), historia_clinica(*)').order('nombre', { ascending: true });
         if (data) setPacientes(data);
     };
 
@@ -93,9 +94,12 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
     useEffect(() => {
         if (!pacienteSeleccionado) return;
         
-        const fetchExpediente = async () => {
-            const { data: hData } = await supabase.from('historia_clinica').select('*').eq('paciente_id', pacienteSeleccionado.id).maybeSingle();
-            
+        // 🚀 LÓGICA DE CARGA CORREGIDA: Lee los datos que ya trajimos en fetchPacientesYSucursales
+        const loadExpediente = async () => {
+            // El paciente seleccionado trae un array de historias, tomamos la primera (debería ser solo una)
+            const hDataArray = pacienteSeleccionado.historia_clinica;
+            const hData = (hDataArray && hDataArray.length > 0) ? hDataArray[0] : null;
+
             if (hData) { 
                 setHistoria(hData); 
                 setHForm({
@@ -128,7 +132,8 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
             
             setTabActiva('historia');
         };
-        fetchExpediente();
+        
+        loadExpediente();
     }, [pacienteSeleccionado]);
 
     // 🚀 CHIPS INTELIGENTES DE HISTORIA CLÍNICA
@@ -234,7 +239,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         
         if (signos.length > 0) {
             if (isNota) {
-                setNForm(prev => ({ ...prev, evolucion: (prev.evolucion + `\nSignos Vitales: ${signos.join(', ')}.`).trim() }));
+                setNForm(prev => ({ ...prev, evaluacion_signos: (prev.evaluacion_signos + `\nSignos Vitales: ${signos.join(', ')}.`).trim() }));
             } else {
                 setHForm(prev => ({ ...prev, exploracion_fisica: (prev.exploracion_fisica + `\nSignos Vitales: ${signos.join(', ')}.`).trim() }));
             }
@@ -285,7 +290,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         if (firmar) {
             let camposFaltantes = [];
             
-            if (!hForm.mtc_pulso_lengua?.trim()) camposFaltantes.push(`• ${t('redaccionDiagnosticoMTC') || 'Redacción Diagnóstico MTC'}`);
+            if (!hForm.mtc_pulso_lengua?.trim()) camposFaltantes.push(`• ${t('redaccionDiagnosticoMTC') || 'Redacción Diagnóstico MTC (Usa el botón Auto-Redactar)'}`);
             if (!hForm.diagnostico_cie?.trim()) camposFaltantes.push(`• ${t('diagnosticoCie') || 'Diagnóstico Clínico (CIE)'}`);
             if (!hForm.pronostico?.trim()) camposFaltantes.push(`• ${t('pronostico') || 'Pronóstico'}`);
             if (!hForm.plan_tratamiento?.trim()) camposFaltantes.push(`• ${t('planTratamientoPuntos') || 'Plan de Tratamiento'}`);
@@ -317,6 +322,9 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
             
             alert(firmar ? t('documentoFirmadoExito') || 'Documento firmado con éxito' : t('guardarBorradorExito') || 'Borrador Guardado con éxito');
             if (firmar) setHistoria({ ...historia, ...payload });
+
+            // 🚀 ACTUALIZACIÓN FORZADA DEL ESTADO MAESTRO PARA EVITAR QUE SE OCULTE EL OJITO
+            await fetchPacientesYSucursales();
 
         } catch (error) {
             console.error(error);
@@ -388,6 +396,9 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
             alert(firmar ? t('documentoFirmadoExito') || 'Nota firmada con éxito' : t('guardarBorradorExito') || 'Borrador Guardado con éxito');
             const { data } = await supabase.from('notas_evolucion').select('*').eq('paciente_id', pacienteSeleccionado.id).order('fecha_registro', { ascending: false });
             if (data) { setNotas(data); setNotaActiva(null); }
+
+            // 🚀 ACTUALIZACIÓN FORZADA DEL ESTADO MAESTRO PARA EVITAR QUE SE OCULTE LA NOTA
+            await fetchPacientesYSucursales();
 
         } catch(error) {
             console.error(error);
@@ -1014,7 +1025,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
                                                                 <div style={{textAlign: 'right', marginTop: '10px'}}>
                                                                     <button disabled={isProcessingBtn} onClick={() => redactarHallazgosMTCh(true)} className="btn-primary" style={{padding: '8px 20px', background: '#f59e0b', border: 'none', borderRadius: '8px', color: 'white', fontWeight: 'bold', cursor: isProcessingBtn ? 'not-allowed' : 'pointer', fontSize: '0.85rem', boxShadow: '0 4px 10px rgba(245, 158, 11, 0.2)'}}>
-                                                                        <i className="fa-solid fa-wand-magic-sparkles"></i> {t('autoRedactarHallazgos') || 'Auto-Redactar Evolución'}
+                                                                        <i className="fa-solid fa-wand-magic-sparkles"></i> Auto-Redactar Evolución
                                                                     </button>
                                                                 </div>
                                                             </div>
