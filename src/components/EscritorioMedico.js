@@ -9,9 +9,16 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
     const [isMounted, setIsMounted] = useState(false);
     useEffect(() => { setIsMounted(true); }, []);
 
-    // 🚀 BLINDAJE ANTI-DOBLE CLIC
+    // 🚀 BLINDAJE ANTI-DOBLE CLIC Y ANIMACIONES
     const isProcessingRef = useRef(false);
     const [isProcessingBtn, setIsProcessingBtn] = useState(false);
+    
+    // 🌟 ESTADOS PARA LA ANIMACIÓN DE TRADUCCIÓN
+    const [translatingField, setTranslatingField] = useState(null);
+    const [successField, setSuccessField] = useState(null);
+    
+    // 🚀 ESTADO PARA EL ORDENAMIENTO DEL DIRECTORIO
+    const [ordenDirectorio, setOrdenDirectorio] = useState('fecha_desc'); // 'fecha_desc' o 'alfabetico'
 
     const formatDate = (dateString) => {
         if (!isMounted || !dateString) return '';
@@ -48,9 +55,10 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
     const [historia, setHistoria] = useState(null);
     const [hForm, setHForm] = useState({
+        motivo_consulta: '', padecimiento_actual: '', antecedentes_personales: '', antecedentes_familiares: '',
+        medicamentos_actuales: '', habitos_sustancias: '', habitos_sueno: '', gineco_obstetricos: '', planificacion_familiar: '',
         exploracion_fisica: '', diagnostico_cie: '', mtc_pulso_lengua: '', pronostico: '', plan_tratamiento: ''
     });
-    const [datosRecepcion, setDatosRecepcion] = useState(null); 
 
     const [pulsoMatrix, setPulsoMatrix] = useState({});
     const [lenguaMatrix, setLenguaMatrix] = useState({});
@@ -82,7 +90,6 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         const { data: sucursales } = await supabase.from('sucursales').select('id, nombre').order('id');
         if (sucursales) setSucursalesDB(sucursales);
 
-        // 🚀 Carga robusta de la historia clínica en la primera consulta
         const { data } = await supabase.from('clientes').select('*, alertas_clinicas(id, tipo_alerta, descripcion, nivel_gravedad, activa), historia_clinica(*)').order('nombre', { ascending: true });
         if (data) setPacientes(data);
     };
@@ -94,34 +101,36 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
     useEffect(() => {
         if (!pacienteSeleccionado) return;
         
-        // 🚀 LÓGICA DE CARGA CORREGIDA: Lee los datos que ya trajimos en fetchPacientesYSucursales
         const loadExpediente = async () => {
-            // El paciente seleccionado trae un array de historias, tomamos la primera (debería ser solo una)
             const hDataArray = pacienteSeleccionado.historia_clinica;
             const hData = (hDataArray && hDataArray.length > 0) ? hDataArray[0] : null;
 
             if (hData) { 
                 setHistoria(hData); 
+                let textoMotivo = hData.motivo_consulta || '';
+                if (hData.padecimiento_actual) {
+                    textoMotivo += (textoMotivo ? '\n\n' : '') + 'Padecimiento Actual:\n' + hData.padecimiento_actual;
+                }
+
                 setHForm({
+                    motivo_consulta: textoMotivo,
+                    padecimiento_actual: '', 
+                    antecedentes_personales: hData.antecedentes_personales || '',
+                    antecedentes_familiares: hData.antecedentes_familiares || '',
+                    medicamentos_actuales: hData.medicamentos_actuales || '',
+                    habitos_sustancias: hData.habitos_sustancias || '',
+                    habitos_sueno: hData.habitos_sueno || '',
+                    gineco_obstetricos: hData.gineco_obstetricos || '',
+                    planificacion_familiar: hData.planificacion_familiar || '',
                     exploracion_fisica: hData.exploracion_fisica || '',
                     diagnostico_cie: hData.diagnostico_cie || '',
                     mtc_pulso_lengua: hData.mtc_pulso_lengua || '',
                     pronostico: hData.pronostico || '',
                     plan_tratamiento: hData.plan_tratamiento || ''
                 }); 
-                setDatosRecepcion({
-                    motivo: hData.motivo_consulta || '',
-                    padecimiento: hData.padecimiento_actual || '',
-                    personales: hData.antecedentes_personales || '',
-                    familiares: hData.antecedentes_familiares || '',
-                    habitos: `${hData.habitos_sustancias || ''} ${hData.habitos_sueno || ''}`,
-                    medicamentos: hData.medicamentos_actuales || '',
-                    gineco: hData.gineco_obstetricos || ''
-                });
             } else { 
                 setHistoria(null); 
-                setHForm({ exploracion_fisica: '', diagnostico_cie: '', mtc_pulso_lengua: '', pronostico: '', plan_tratamiento: '' }); 
-                setDatosRecepcion(null);
+                setHForm({ motivo_consulta: '', padecimiento_actual: '', antecedentes_personales: '', antecedentes_familiares: '', medicamentos_actuales: '', habitos_sustancias: '', habitos_sueno: '', gineco_obstetricos: '', planificacion_familiar: '', exploracion_fisica: '', diagnostico_cie: '', mtc_pulso_lengua: '', pronostico: '', plan_tratamiento: '' }); 
                 setPulsoMatrix({});
                 setLenguaMatrix({});
                 setSignosVitales({ fc: '', fr: '', ta: '', temp: '' });
@@ -136,7 +145,71 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         loadExpediente();
     }, [pacienteSeleccionado]);
 
-    // 🚀 CHIPS INTELIGENTES DE HISTORIA CLÍNICA
+    // 🚀 API DE TRADUCCIÓN REAL + ANIMACIÓN SOFISTICADA CORREGIDA
+    const traducirCampo = async (campo, valorActual) => {
+        if (!valorActual || valorActual.trim() === '') return;
+
+        setTranslatingField(campo);
+        setIsProcessingBtn(true); 
+        
+        try {
+            const response = await fetch('/api/traducir', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    texto: valorActual,
+                    idioma_destino: 'zh-CN'
+                })
+            });
+
+            if (!response.ok) throw new Error('Error al conectar con la API de traducción');
+
+            const data = await response.json();
+            const textoTraducido = data.texto_traducido || data.text || data.traduccion || data.result || data.data; 
+
+            if (!textoTraducido) {
+                return alert("API respondió, pero no encontramos el texto traducido. ¡Abre la consola F12!");
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 800));
+
+            const camposNota = ['evolucion', 'procedimiento_tecnica', 'plan_indicaciones', 'diagnostico_sesion'];
+            if (camposNota.includes(campo)) {
+                setNForm(prev => ({ ...prev, [campo]: textoTraducido }));
+            } else {
+                setHForm(prev => ({ ...prev, [campo]: textoTraducido }));
+                // 🚀 ARREGLO: Si el expediente ya estaba firmado (solo lectura), actualizamos "historia"
+                if (historia && historia.estado === 'firmada') {
+                    setHistoria(prev => ({ ...prev, [campo]: textoTraducido }));
+                }
+            }
+
+            setTranslatingField(null);
+            setSuccessField(campo);
+            setTimeout(() => setSuccessField(null), 1200); 
+
+        } catch (error) {
+            console.error("Error de traducción:", error);
+            alert("No se pudo traducir el texto. Verifica tu conexión.");
+            setTranslatingField(null);
+        } finally {
+            setIsProcessingBtn(false);
+        }
+    };
+
+    const getTranslateIcon = (campo) => {
+        if (translatingField === campo) return <i className="fa-solid fa-language fa-beat-fade"></i>;
+        if (successField === campo) return <i className="fa-solid fa-check"></i>;
+        return <i className="fa-solid fa-language"></i>;
+    };
+
+    const getFieldClass = (baseClass, campo) => {
+        let classes = baseClass;
+        if (translatingField === campo) classes += " translating-glow text-blur ";
+        if (successField === campo) classes += " translated-success ";
+        return classes;
+    };
+
     const pronosticosRapidos = [
         { id: 'favorable', icon: 'fa-thumbs-up', label: t('btnPronosticoFavorable') || 'Favorable', text: t('txtPronosticoFavorable') || 'Bueno para la vida y la función. Evolución clínica favorable esperada bajo estricto apego al plan terapéutico.', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' },
         { id: 'reservado', icon: 'fa-scale-unbalanced', label: t('btnPronosticoReservado') || 'Reservado', text: t('txtPronosticoReservado') || 'Pronóstico reservado a evolución clínica y respuesta individual al tratamiento instaurado.', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' },
@@ -149,7 +222,6 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         { id: 'integral', icon: 'fa-spa', label: t('btnPlanIntegral') || 'Manejo Integral', text: t('txtPlanIntegral') || 'Sesiones enfocadas en regulación sistémica general, reequilibrio energético y prevención.', color: '#0d9488', bg: 'rgba(13, 148, 136, 0.1)' }
     ];
 
-    // 🚀 CHIPS INTELIGENTES DE NOTAS DE EVOLUCIÓN
     const chipsEvolucion = [
         { id: 'mejoria', label: t('chipMejoria') || 'Refiere mejoría general' },
         { id: 'sinDolor', label: t('chipSinDolor') || 'Dolor disminuido/ausente' },
@@ -308,26 +380,30 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
         try {
             const payload = {
-                paciente_id: pacienteSeleccionado.id, medico_nombre: perfilActual?.nombre || 'Médico', ...hForm,
-                estado: firmar ? 'firmada' : 'borrador', fecha_firma: firmar ? new Date().toISOString() : null, 
+                paciente_id: pacienteSeleccionado.id, 
+                medico_nombre: perfilActual?.nombre || 'Médico', 
+                ...hForm,
+                estado: firmar ? 'firmada' : 'borrador', 
+                fecha_firma: firmar ? new Date().toISOString() : null, 
                 firma_hash: firmar ? Math.random().toString(36).substring(2, 15) + Date.now().toString(36) : null
             };
 
             if (historia?.id) { 
-                await supabase.from('historia_clinica').update(payload).eq('id', historia.id); 
+                const { error } = await supabase.from('historia_clinica').update(payload).eq('id', historia.id);
+                if (error) { alert("Error al actualizar la historia clínica: " + error.message); return; }
             } else { 
-                const { data } = await supabase.from('historia_clinica').insert([payload]).select(); 
+                const { data, error } = await supabase.from('historia_clinica').insert([payload]).select();
+                if (error) { alert("Error al crear la historia clínica: " + error.message); return; }
                 if (data) setHistoria(data[0]); 
             }
             
             alert(firmar ? t('documentoFirmadoExito') || 'Documento firmado con éxito' : t('guardarBorradorExito') || 'Borrador Guardado con éxito');
-            if (firmar) setHistoria({ ...historia, ...payload });
-
-            // 🚀 ACTUALIZACIÓN FORZADA DEL ESTADO MAESTRO PARA EVITAR QUE SE OCULTE EL OJITO
+            if (firmar) setHistoria(prev => ({ ...prev, ...payload }));
             await fetchPacientesYSucursales();
 
         } catch (error) {
             console.error(error);
+            alert("Ocurrió un error inesperado al guardar la historia clínica.");
         } finally {
             isProcessingRef.current = false;
             setIsProcessingBtn(false);
@@ -397,7 +473,6 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
             const { data } = await supabase.from('notas_evolucion').select('*').eq('paciente_id', pacienteSeleccionado.id).order('fecha_registro', { ascending: false });
             if (data) { setNotas(data); setNotaActiva(null); }
 
-            // 🚀 ACTUALIZACIÓN FORZADA DEL ESTADO MAESTRO PARA EVITAR QUE SE OCULTE LA NOTA
             await fetchPacientesYSucursales();
 
         } catch(error) {
@@ -538,55 +613,208 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         setRForm({ receptor: '', motivo: '', diagnostico: '' });
     };
 
-    const generarPDF = () => {
-        const printWindow = window.open('', '_blank');
-        let htmlContent = `
-            <html>
-            <head>
-                <title>Expediente Clínico - ${pacienteSeleccionado.codigo_expediente || 'S/E'}</title>
-                <style>
-                    body { font-family: 'Helvetica', 'Arial', sans-serif; padding: 40px; color: #000; line-height: 1.5; font-size: 12px; background: white;}
-                    .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 20px; }
-                    h1 { margin: 0; font-size: 18px; text-transform: uppercase; }
-                    h2 { font-size: 14px; background: #eee; padding: 5px; margin-top: 20px; border: 1px solid #ccc; }
-                    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-                    .box { border: 1px solid #ccc; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
-                    .label { font-weight: bold; font-size: 11px; color: #555; display: block; }
-                    .firma-hash { font-family: monospace; font-size: 10px; color: #666; background: #f9f9f9; padding: 5px; border: 1px dashed #ccc; display: inline-block; margin-top: 5px; }
-                    .alerta { color: red; font-weight: bold; }
-                </style>
-            </head>
-            <body>
-                <div class="header">
-                    <h1>ACUPUNTURA CHINA TRADICIONAL H.K.</h1>
-                    <p>Expediente Clínico Oficial (Cumplimiento NOM-004-SSA3-2012)</p>
-                </div>
-                <h2>IDENTIFICACIÓN DEL PACIENTE</h2>
-                <div class="info-grid">
-                    <div><span class="label">Nombre:</span> ${pacienteSeleccionado.nombre}</div>
-                    <div><span class="label">Expediente:</span> ${pacienteSeleccionado.codigo_expediente || 'S/E'}</div>
-                    <div><span class="label">CURP:</span> ${pacienteSeleccionado.curp || 'No proporcionado'}</div>
-                    <div><span class="label">Sexo / Teléfono:</span> ${pacienteSeleccionado.sexo} / ${pacienteSeleccionado.telefono}</div>
-                </div>`;
+    // 🚀 GENERADOR DE EXPEDIENTE OFICIAL (COFEPRIS + AUTO-TRADUCCIÓN A ESPAÑOL)
+    const generarPDF = async () => {
+        if (!historia) return alert(t('alertaNoHistoria') || 'No hay un historial clínico base guardado para generar el PDF.');
+        
+        // 1. Bloqueamos la interfaz mientras traducimos el expediente completo
+        setIsProcessingBtn(true);
+        // Opcional: Puedes mostrar un toast/alerta aquí avisando que se está traduciendo
+        console.log("Iniciando traducción paralela a Español para el PDF oficial...");
 
-        if (pacienteSeleccionado.alertas_clinicas?.filter(a => a.activa).length > 0) {
-            htmlContent += `<h2>ALERTAS CLÍNICAS</h2><ul>`;
-            pacienteSeleccionado.alertas_clinicas.filter(a => a.activa).forEach(a => { htmlContent += `<li class="alerta">${a.tipo_alerta}: ${a.descripcion}</li>`; });
-            htmlContent += `</ul>`;
+        try {
+            // Helper interno para traducir cada campo a ESPAÑOL
+            const traducirParaPDF = async (texto) => {
+                if (!texto || texto.trim() === '') return '-';
+                try {
+                    const response = await fetch('/api/traducir', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ texto, idioma_destino: 'es' }) // 🚀 Forzamos a Español
+                    });
+                    if (!response.ok) return texto; // Si falla, imprimimos el original
+                    const data = await response.json();
+                    return data.texto_traducido || data.text || data.traduccion || data.result || data.data || texto;
+                } catch (error) {
+                    return texto; // Si falla el fetch, usamos el original
+                }
+            };
+
+            // 2. Ejecutamos TODAS las traducciones al mismo tiempo (Promise.all) para no hacer esperar al doctor
+            const [
+                motivoEs, padecimientoEs, antPersonalesEs, antFamiliaresEs,
+                medicamentosEs, habitosSustEs, habitosSuenoEs,
+                ginecoEs, planifEs, expFisicaEs,
+                dxCieEs, mtcEs, pronosticoEs, planEs
+            ] = await Promise.all([
+                traducirParaPDF(historia.motivo_consulta),
+                traducirParaPDF(historia.padecimiento_actual),
+                traducirParaPDF(historia.antecedentes_personales),
+                traducirParaPDF(historia.antecedentes_familiares),
+                traducirParaPDF(historia.medicamentos_actuales),
+                traducirParaPDF(historia.habitos_sustancias),
+                traducirParaPDF(historia.habitos_sueno),
+                traducirParaPDF(historia.gineco_obstetricos),
+                traducirParaPDF(historia.planificacion_familiar),
+                traducirParaPDF(historia.exploracion_fisica),
+                traducirParaPDF(historia.diagnostico_cie),
+                traducirParaPDF(historia.mtc_pulso_lengua),
+                traducirParaPDF(historia.pronostico),
+                traducirParaPDF(historia.plan_tratamiento)
+            ]);
+
+            // 3. Generamos la plantilla HTML con el diseño premium y colores de la marca
+            const printWindow = window.open('', '_blank');
+            let htmlContent = `
+                <html>
+                <head>
+                    <title>Expediente Clínico Oficial - ${pacienteSeleccionado.codigo_expediente || 'S/E'}</title>
+                    <style>
+                        :root { 
+                            --primary: #b71c1c; /* Rojo oscuro premium */
+                            --secondary: #fef2f2; /* Fondo rojo ultra claro */
+                            --text-main: #1f2937;
+                            --text-muted: #4b5563;
+                            --border: #e5e7eb;
+                        }
+                        @page { margin: 15mm; }
+                        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 0; color: var(--text-main); line-height: 1.5; font-size: 11px; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                        
+                        /* HEADER OFICIAL */
+                        .header-container { display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid var(--primary); padding-bottom: 15px; margin-bottom: 25px; }
+                        .logo-title h1 { color: var(--primary); margin: 0; font-size: 22px; text-transform: uppercase; letter-spacing: 1px; font-weight: 900; }
+                        .logo-title p { margin: 4px 0 0 0; font-size: 10px; color: var(--text-muted); font-weight: bold; letter-spacing: 0.5px; }
+                        .doc-meta { text-align: right; font-size: 10px; color: var(--text-muted); line-height: 1.4; }
+                        .doc-meta strong { color: var(--text-main); }
+                        
+                        /* SECCIONES */
+                        .section-title { background-color: var(--primary); color: white; padding: 6px 12px; font-size: 12px; font-weight: bold; text-transform: uppercase; margin: 20px 0 10px 0; border-radius: 4px; letter-spacing: 0.5px; }
+                        
+                        /* GRID Y CAJAS DE DATOS */
+                        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+                        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
+                        .data-box { border: 1px solid var(--border); border-radius: 6px; padding: 10px; background-color: #f9fafb; page-break-inside: avoid; }
+                        .data-box.highlight { background-color: var(--secondary); border-color: #fca5a5; }
+                        .data-label { font-size: 9px; text-transform: uppercase; color: var(--primary); font-weight: bold; margin-bottom: 6px; display: block; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+                        .data-value { font-size: 11px; white-space: pre-wrap; line-height: 1.5; color: var(--text-main); }
+                        
+                        /* FOOTER LEGAL */
+                        .footer-legal { margin-top: 40px; border-top: 2px solid var(--border); padding-top: 20px; page-break-inside: avoid; display: flex; justify-content: space-between; align-items: flex-end; }
+                        .hash-box { font-family: monospace; font-size: 9px; color: #6b7280; background: #f3f4f6; padding: 8px; border: 1px dashed #d1d5db; border-radius: 4px; max-width: 60%; }
+                        .signature-block { width: 220px; text-align: center; border-top: 1px solid var(--text-main); padding-top: 5px; }
+                        .signature-block p { margin: 0; font-size: 10px; color: var(--text-muted); }
+                        .signature-block strong { font-size: 12px; color: var(--text-main); }
+                        
+                        .alerta-badge { display: inline-block; background-color: #ef4444; color: white; padding: 3px 8px; border-radius: 12px; font-size: 9px; font-weight: bold; margin-right: 5px; margin-bottom: 5px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header-container">
+                        <div class="logo-title">
+                            <h1>ACUPUNTURA CHINA TRADICIONAL H.K.</h1>
+                            <p>EXPEDIENTE CLÍNICO OFICIAL - CUMPLIMIENTO NOM-004-SSA3-2012</p>
+                        </div>
+                        <div class="doc-meta">
+                            Fecha de Impresión: <strong>${new Date().toLocaleString()}</strong><br/>
+                            ID Expediente: <strong>${pacienteSeleccionado.codigo_expediente || 'N/A'}</strong><br/>
+                            Estado Legal: <strong>${historia.estado === 'firmada' ? 'DOCUMENTO CERRADO Y FIRMADO' : 'BORRADOR DE TRABAJO'}</strong>
+                        </div>
+                    </div>
+
+                    <div class="section-title">1. Ficha de Identificación</div>
+                    <div class="grid-3">
+                        <div class="data-box"><span class="data-label">Nombre del Paciente</span><div class="data-value"><strong>${pacienteSeleccionado.nombre}</strong></div></div>
+                        <div class="data-box"><span class="data-label">Edad y Sexo</span><div class="data-value">${calcularEdad(pacienteSeleccionado.fecha_nacimiento)} - ${pacienteSeleccionado.sexo}</div></div>
+                        <div class="data-box"><span class="data-label">CURP / Identificación</span><div class="data-value">${pacienteSeleccionado.curp || 'No proporcionado'}</div></div>
+                        <div class="data-box"><span class="data-label">Ocupación</span><div class="data-value">${pacienteSeleccionado.ocupacion || '-'}</div></div>
+                        <div class="data-box"><span class="data-label">Teléfono de Contacto</span><div class="data-value">${pacienteSeleccionado.telefono || '-'}</div></div>
+                        <div class="data-box"><span class="data-label">Estado Civil</span><div class="data-value">${pacienteSeleccionado.estado_civil || '-'}</div></div>
+                    </div>
+                    <div class="data-box" style="margin-bottom: 12px;"><span class="data-label">Domicilio Completo</span><div class="data-value">${pacienteSeleccionado.domicilio || '-'}</div></div>`;
+
+            // INYECCIÓN DE ALERTAS SI EXISTEN
+            if (pacienteSeleccionado.alertas_clinicas?.filter(a => a.activa).length > 0) {
+                htmlContent += `<div class="data-box highlight" style="margin-bottom: 12px;"><span class="data-label" style="color: #b91c1c;">Alertas Médicas Críticas</span><div class="data-value">`;
+                pacienteSeleccionado.alertas_clinicas.filter(a => a.activa).forEach(a => { 
+                    htmlContent += `<span class="alerta-badge">${a.tipo_alerta}: ${a.descripcion}</span>`; 
+                });
+                htmlContent += `</div></div>`;
+            }
+
+            htmlContent += `
+                    <div class="section-title">2. Interrogatorio Clínico (Anamnesis)</div>
+                    <div class="data-box" style="margin-bottom: 12px;"><span class="data-label">Motivo de Consulta y Padecimiento Actual</span><div class="data-value">${motivoEs} ${padecimientoEs !== '-' ? '\n\n' + padecimientoEs : ''}</div></div>
+                    
+                    <div class="grid-2">
+                        <div class="data-box"><span class="data-label">Antecedentes Heredofamiliares</span><div class="data-value">${antFamiliaresEs}</div></div>
+                        <div class="data-box"><span class="data-label">Antecedentes Personales Patológicos</span><div class="data-value">${antPersonalesEs}</div></div>
+                        <div class="data-box"><span class="data-label">Medicamentos Actuales</span><div class="data-value">${medicamentosEs}</div></div>
+                        <div class="data-box"><span class="data-label">Hábitos y Sustancias (No Patológicos)</span><div class="data-value">${habitosSustEs}<br/><strong>Sueño:</strong> ${habitosSuenoEs}</div></div>
+                    </div>`;
+
+            if (pacienteSeleccionado.sexo === 'Femenino') {
+                htmlContent += `
+                    <div class="grid-2">
+                        <div class="data-box"><span class="data-label">Antecedentes Gineco-Obstétricos</span><div class="data-value">${ginecoEs}</div></div>
+                        <div class="data-box"><span class="data-label">Planificación Familiar</span><div class="data-value">${planifEs}</div></div>
+                    </div>`;
+            }
+
+            htmlContent += `
+                    <div class="section-title">3. Exploración Física y Evaluación MTCh</div>
+                    <div class="data-box highlight" style="margin-bottom: 12px;"><span class="data-label">Diagnóstico de Lengua y Pulso (Síndromes MTCh)</span><div class="data-value" style="font-family: 'Courier New', Courier, monospace;">${mtcEs}</div></div>
+                    <div class="data-box" style="margin-bottom: 12px;"><span class="data-label">Exploración Física Adicional / Signos Vitales</span><div class="data-value">${expFisicaEs}</div></div>
+
+                    <div class="section-title">4. Diagnóstico, Tratamiento y Pronóstico</div>
+                    <div class="grid-2">
+                        <div class="data-box"><span class="data-label">Impresión Diagnóstica (CIE / Occidental)</span><div class="data-value"><strong>${dxCieEs}</strong></div></div>
+                        <div class="data-box"><span class="data-label">Pronóstico Clínico</span><div class="data-value">${pronosticoEs}</div></div>
+                    </div>
+                    <div class="data-box"><span class="data-label">Plan de Tratamiento y Objetivos Terapéuticos</span><div class="data-value">${planEs}</div></div>
+            `;
+
+            // FIRMA Y CIERRE LEGAL
+            if (historia.estado === 'firmada') {
+                htmlContent += `
+                    <div class="footer-legal">
+                        <div class="hash-box">
+                            <strong>SELLO DIGITAL Y CADENA DE TRAZABILIDAD (NOM-004)</strong><br/>
+                            ID Registro: ${historia.id}<br/>
+                            Firma Hash: ${historia.firma_hash}<br/>
+                            Timestamp: ${formatDate(historia.fecha_firma)}
+                        </div>
+                        <div class="signature-block">
+                            <strong>${historia.medico_nombre}</strong>
+                            <p>Nombre y Firma del Médico Tratante</p>
+                        </div>
+                    </div>`;
+            } else {
+                htmlContent += `
+                    <div class="footer-legal" style="justify-content: flex-end;">
+                        <div class="signature-block" style="border-top: 1px dashed #9ca3af;">
+                            <p style="color: #ef4444;">EXPEDIENTE EN BORRADOR - SIN VALIDEZ LEGAL</p>
+                        </div>
+                    </div>`;
+            }
+
+            htmlContent += `</body></html>`;
+
+            printWindow.document.write(htmlContent);
+            printWindow.document.close();
+            
+            // Le damos tiempo al navegador para cargar estilos antes de llamar imprimir
+            setTimeout(() => { 
+                printWindow.focus();
+                printWindow.print(); 
+                printWindow.close(); 
+            }, 800);
+
+        } catch (error) {
+            console.error("Error al generar PDF y traducir:", error);
+            alert("Ocurrió un error al preparar el documento. Verifica la conexión con la API de traducción.");
+        } finally {
+            setIsProcessingBtn(false);
         }
-
-        if (historia && historia.estado === 'firmada') {
-            htmlContent += `<h2>HISTORIA CLÍNICA INICIAL</h2>`;
-            htmlContent += `<div class="box"><span class="label">Diagnóstico (CIE):</span> ${historia.diagnostico_cie}</div>`;
-            htmlContent += `<div class="box"><span class="label">Plan de Tratamiento:</span> ${historia.plan_tratamiento}</div>`;
-            htmlContent += `<div class="firma-hash">FIRMADO POR: ${historia.medico_nombre} | FECHA: ${formatDate(historia.fecha_firma)} | HASH: ${historia.firma_hash}</div>`;
-        }
-
-        htmlContent += `</body></html>`;
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
-        printWindow.focus();
-        setTimeout(() => { printWindow.print(); printWindow.close(); }, 800);
     };
 
     const pacientesFiltrados = pacientes.filter(p => {
@@ -605,6 +833,15 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
         }
 
         return true;
+    }).sort((a, b) => {
+        // 🚀 NUEVO: Lógica de Ordenamiento Dinámico
+        if (ordenDirectorio === 'alfabetico') {
+            return (a.nombre || '').localeCompare(b.nombre || '');
+        } else {
+            const fechaA = new Date(a.fecha_registro || 0).getTime();
+            const fechaB = new Date(b.fecha_registro || 0).getTime();
+            return fechaB - fechaA; // El más reciente primero
+        }
     });
 
     return (
@@ -642,6 +879,16 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                             <i className="fa-solid fa-magnifying-glass" style={{position: 'absolute', left: '12px', top: '14px', color: 'var(--text-muted)'}}></i>
                             <input type="text" placeholder={t('buscarExpediente') || 'Buscar expediente...'} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{width: '100%', padding: '12px 12px 12px 35px', background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem', outline: 'none'}} />
                         </div>
+                        
+                        {/* 🚀 NUEVO BOTÓN DE ORDENAMIENTO */}
+                        <button 
+                            onClick={() => setOrdenDirectorio(prev => prev === 'fecha_desc' ? 'alfabetico' : 'fecha_desc')}
+                            style={{padding: '12px', background: 'var(--bg-main)', color: 'var(--accent)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.3s'}}
+                            title={ordenDirectorio === 'fecha_desc' ? (t('ordenAlfabetico') || 'Ordenar A-Z') : (t('ordenRecientes') || 'Más Recientes')}
+                        >
+                            <i className={`fa-solid ${ordenDirectorio === 'fecha_desc' ? 'fa-arrow-down-a-z' : 'fa-clock'}`}></i>
+                        </button>
+
                         <button 
                             onClick={() => setShowLegacyClients(!showLegacyClients)}
                             style={{padding: '12px', background: showLegacyClients ? 'rgba(2, 136, 209, 0.1)' : 'var(--bg-main)', color: showLegacyClients ? '#0288d1' : 'var(--text-muted)', border: `1px solid ${showLegacyClients ? '#0288d1' : 'var(--border-color)'}`, borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.3s'}}
@@ -732,6 +979,18 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                             </div>
                         </div>
 
+                        {/* BANNER DE ALERTAS CLÍNICAS SUPERIOR */}
+                        {pacienteSeleccionado?.alertas_clinicas?.filter(a => a.activa).length > 0 && (
+                            <div style={{background: 'rgba(239, 68, 68, 0.1)', padding: '15px 30px', borderBottom: '1px solid var(--primary-red)', display: 'flex', alignItems: 'center', gap: '15px'}}>
+                                <h4 style={{color: 'var(--primary-red)', margin: 0, fontSize: '1.05rem', whiteSpace: 'nowrap'}}><i className="fa-solid fa-triangle-exclamation"></i> {t('alertasRestrictivas') || 'Alertas Clínicas'}:</h4>
+                                <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                                    {pacienteSeleccionado.alertas_clinicas.filter(a => a.activa).map(a => (
+                                        <span key={a.id} style={{background: 'var(--primary-red)', color: 'white', padding: '4px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold'}}>{a.tipo_alerta}: {a.descripcion}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {/* PESTAÑAS MÉDICAS PRINCIPALES */}
                         <div style={{display: 'flex', gap: '30px', padding: '0 30px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-color)', flexShrink: 0}}>
                             <button className="tab-btn" onClick={() => setTabActiva('historia')} style={{borderBottom: tabActiva === 'historia' ? '3px solid var(--accent)' : '3px solid transparent', color: tabActiva === 'historia' ? 'var(--accent)' : 'var(--text-muted)'}}><i className="fa-solid fa-file-medical" style={{marginRight: '8px'}}></i> {t('evaluacionDiagnostico') || 'Evaluación y Diagnóstico'}</button>
@@ -754,32 +1013,147 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                             </div>
                                             
                                             <h4 style={{color: 'var(--accent)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', fontSize: '1.2rem'}}><i className="fa-solid fa-clipboard-question"></i> {t('resumenPaciente') || 'Resumen del Paciente'}</h4>
-                                            <div className="read-box"><span className="label">{t('motivoConsulta') || 'Motivo de Consulta'}</span> {datosRecepcion?.motivo || '-'}</div>
+                                            <div className="read-box">
+                                                <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                                                    <span className="label">{t('motivoConsulta') || 'Motivo de Consulta'}</span>
+                                                    <button onClick={() => traducirCampo('motivo_consulta', historia.motivo_consulta)} className="btn-action" style={{padding: '4px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px'}}>{getTranslateIcon('motivo_consulta')} {translatingField === 'motivo_consulta' ? 'Traduciendo...' : (t('traducir') || 'Traducir')}</button>
+                                                </div>
+                                                <div className={getFieldClass("", 'motivo_consulta')} style={{whiteSpace: 'pre-wrap', marginTop: '10px', transition: 'all 0.3s ease'}}>{historia.motivo_consulta || '-'}</div>
+                                            </div>
+                                            
+                                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px'}}>
+                                                <div className="read-box-mini">
+                                                    <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                                                        <span className="label">{t('aPersonales') || 'A. Personales'}</span>
+                                                        <button onClick={() => traducirCampo('antecedentes_personales', historia.antecedentes_personales)} className="btn-action" style={{padding: '2px 6px', fontSize: '0.7rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px'}}>{getTranslateIcon('antecedentes_personales')}</button>
+                                                    </div>
+                                                    <div className={getFieldClass("", 'antecedentes_personales')} style={{marginTop: '5px', transition: 'all 0.3s ease'}}>{historia.antecedentes_personales || '-'}</div>
+                                                </div>
+                                                <div className="read-box-mini">
+                                                    <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                                                        <span className="label">{t('aFamiliares') || 'A. Familiares'}</span>
+                                                        <button onClick={() => traducirCampo('antecedentes_familiares', historia.antecedentes_familiares)} className="btn-action" style={{padding: '2px 6px', fontSize: '0.7rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px'}}>{getTranslateIcon('antecedentes_familiares')}</button>
+                                                    </div>
+                                                    <div className={getFieldClass("", 'antecedentes_familiares')} style={{marginTop: '5px', transition: 'all 0.3s ease'}}>{historia.antecedentes_familiares || '-'}</div>
+                                                </div>
+                                                <div className="read-box-mini">
+                                                    <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                                                        <span className="label">{t('medicamentosActuales') || 'Medicamentos'}</span>
+                                                        <button onClick={() => traducirCampo('medicamentos_actuales', historia.medicamentos_actuales)} className="btn-action" style={{padding: '2px 6px', fontSize: '0.7rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px'}}>{getTranslateIcon('medicamentos_actuales')}</button>
+                                                    </div>
+                                                    <div className={getFieldClass("", 'medicamentos_actuales')} style={{marginTop: '5px', transition: 'all 0.3s ease'}}>{historia.medicamentos_actuales || '-'}</div>
+                                                </div>
+                                                <div className="read-box-mini">
+                                                    <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                                                        <span className="label">{t('habitosYSueno') || 'Hábitos y Sueño'}</span>
+                                                        <button onClick={() => traducirCampo('habitos_sustancias', `${historia.habitos_sustancias} ${historia.habitos_sueno}`)} className="btn-action" style={{padding: '2px 6px', fontSize: '0.7rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px'}}>{getTranslateIcon('habitos_sustancias')}</button>
+                                                    </div>
+                                                    <div className={getFieldClass("", 'habitos_sustancias')} style={{marginTop: '5px', transition: 'all 0.3s ease'}}>{historia.habitos_sustancias} {historia.habitos_sueno || '-'}</div>
+                                                </div>
+                                            </div>
                                             
                                             <h4 style={{color: '#ffb300', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginTop: '30px', fontSize: '1.2rem'}}><i className="fa-solid fa-yin-yang"></i> {t('diagnosticoMtc') || 'Diagnóstico MTCh'}</h4>
-                                            <div className="read-box" style={{background: 'rgba(255, 179, 0, 0.05)', borderColor: 'rgba(255, 179, 0, 0.2)'}}><span className="label" style={{color: '#d97706'}}>{t('pulsoYLengua') || 'Pulso y Lengua'}:</span> <pre style={{fontFamily: 'inherit', margin: 0, whiteSpace: 'pre-wrap', fontSize: '1.05rem'}}>{historia.mtc_pulso_lengua || '-'}</pre></div>
+                                            <div className="read-box" style={{background: 'rgba(255, 179, 0, 0.05)', borderColor: 'rgba(255, 179, 0, 0.2)'}}>
+                                                <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                                                    <span className="label" style={{color: '#d97706'}}>{t('pulsoYLengua') || 'Pulso y Lengua'}:</span> 
+                                                    <button onClick={() => traducirCampo('mtc_pulso_lengua', historia.mtc_pulso_lengua)} className="btn-action" style={{padding: '4px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid #d97706', color: '#d97706', borderRadius: '4px'}}>{getTranslateIcon('mtc_pulso_lengua')} {translatingField === 'mtc_pulso_lengua' ? 'Traduciendo...' : (t('traducir') || 'Traducir')}</button>
+                                                </div>
+                                                <pre className={getFieldClass("", 'mtc_pulso_lengua')} style={{fontFamily: 'inherit', margin: '10px 0 0 0', whiteSpace: 'pre-wrap', fontSize: '1.05rem', transition: 'all 0.3s ease'}}>{historia.mtc_pulso_lengua || '-'}</pre>
+                                            </div>
 
                                             <h4 style={{color: 'var(--success)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginTop: '30px', fontSize: '1.2rem'}}><i className="fa-solid fa-stethoscope"></i> {t('conclusionPlan') || 'Conclusión y Plan'}</h4>
-                                            <div className="read-box"><span className="label">{t('diagnosticoCie') || 'Diagnóstico CIE'}:</span> {historia.diagnostico_cie || '-'}</div>
-                                            <div className="read-box"><span className="label">{t('planTratamiento') || 'Plan de Tratamiento'}:</span> {historia.plan_tratamiento || '-'}</div>
+                                            <div className="read-box">
+                                                <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                                                    <span className="label">{t('diagnosticoCie') || 'Diagnóstico CIE'}:</span>
+                                                    <button onClick={() => traducirCampo('diagnostico_cie', historia.diagnostico_cie)} className="btn-action" style={{padding: '2px 6px', fontSize: '0.7rem', background: 'transparent', border: '1px solid var(--success)', color: 'var(--success)', borderRadius: '4px'}}>{getTranslateIcon('diagnostico_cie')}</button>
+                                                </div>
+                                                <div className={getFieldClass("", 'diagnostico_cie')} style={{marginTop: '5px', transition: 'all 0.3s ease'}}>{historia.diagnostico_cie || '-'}</div>
+                                            </div>
+                                            <div className="read-box">
+                                                <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                                                    <span className="label">{t('planTratamiento') || 'Plan de Tratamiento'}:</span>
+                                                    <button onClick={() => traducirCampo('plan_tratamiento', historia.plan_tratamiento)} className="btn-action" style={{padding: '2px 6px', fontSize: '0.7rem', background: 'transparent', border: '1px solid var(--success)', color: 'var(--success)', borderRadius: '4px'}}>{getTranslateIcon('plan_tratamiento')}</button>
+                                                </div>
+                                                <div className={getFieldClass("", 'plan_tratamiento')} style={{marginTop: '5px', transition: 'all 0.3s ease'}}>{historia.plan_tratamiento || '-'}</div>
+                                            </div>
                                         </div>
                                     ) : (
                                         <>
-                                            {/* 🚀 TARJETA DE LECTURA DE RECEPCIÓN */}
-                                            {datosRecepcion && (
-                                                <div style={{background: 'var(--bg-panel)', borderRadius: '12px', padding: '25px', marginBottom: '30px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)'}}>
-                                                    <h4 style={{margin: '0 0 15px 0', color: 'var(--text-main)', display: 'flex', alignItems: 'center', fontSize: '1.1rem'}}><i className="fa-regular fa-folder-open" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('datosRecepcion') || 'Información recabada en Recepción'}</h4>
-                                                    <div style={{display: 'flex', flexDirection: 'column', gap: '15px'}}>
-                                                        <div className="read-box-mini"><span className="label">{t('motivoPadecimiento') || 'Motivo y Padecimiento'}</span> {datosRecepcion.motivo || '-'}</div>
-                                                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px'}}>
-                                                            <div className="read-box-mini"><span className="label">{t('aPersonales') || 'A. Personales'}</span> {datosRecepcion.personales || '-'}</div>
-                                                            <div className="read-box-mini"><span className="label">{t('aFamiliares') || 'A. Familiares'}</span> {datosRecepcion.familiares || '-'}</div>
-                                                            <div className="read-box-mini"><span className="label">{t('medicamentosActuales') || 'Medicamentos'}</span> {datosRecepcion.medicamentos || '-'}</div>
-                                                            <div className="read-box-mini"><span className="label">{t('habitosYSueno') || 'Hábitos y Sueño'}</span> {datosRecepcion.habitos || '-'}</div>
+                                            <h3 className="pane-title" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                                <span><i className="fa-solid fa-clipboard-question" style={{color: 'var(--accent)', marginRight: '10px'}}></i> {t('interrogatorioInicial') || 'Anamnesis y Antecedentes'}</span>
+                                            </h3>
+                                            
+                                            <div style={{background: 'var(--bg-panel)', padding: '25px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '30px'}}>
+                                                <div style={{display: 'flex', flexDirection: 'column', gap: '20px'}}>
+                                                    <div>
+                                                        <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                            <label className="form-label" style={{marginBottom: 0}}>{t('motivoConsulta') || 'Motivo de Consulta y Padecimiento'}</label>
+                                                            <button disabled={isProcessingBtn} onClick={() => traducirCampo('motivo_consulta', hForm.motivo_consulta)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('motivo_consulta')} {translatingField === 'motivo_consulta' ? 'Traduciendo...' : (t('traducir') || 'Traducir')}</button>
+                                                        </div>
+                                                        <textarea disabled={isProcessingBtn} value={hForm.motivo_consulta} onChange={(e) => setHForm({...hForm, motivo_consulta: e.target.value})} className={getFieldClass("form-input", 'motivo_consulta')} rows="4"></textarea>
+                                                    </div>
+                                                    
+                                                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                                                        <div>
+                                                            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                <label className="form-label" style={{marginBottom: 0}}>{t('antecedentesPersonales') || 'Antecedentes Personales'}</label>
+                                                                <button disabled={isProcessingBtn} onClick={() => traducirCampo('antecedentes_personales', hForm.antecedentes_personales)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('antecedentes_personales')}</button>
+                                                            </div>
+                                                            <textarea disabled={isProcessingBtn} value={hForm.antecedentes_personales} onChange={(e) => setHForm({...hForm, antecedentes_personales: e.target.value})} className={getFieldClass("form-input", 'antecedentes_personales')} rows="3"></textarea>
+                                                        </div>
+                                                        <div>
+                                                            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                <label className="form-label" style={{marginBottom: 0}}>{t('antecedentesFamiliares') || 'Antecedentes Familiares'}</label>
+                                                                <button disabled={isProcessingBtn} onClick={() => traducirCampo('antecedentes_familiares', hForm.antecedentes_familiares)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('antecedentes_familiares')}</button>
+                                                            </div>
+                                                            <textarea disabled={isProcessingBtn} value={hForm.antecedentes_familiares} onChange={(e) => setHForm({...hForm, antecedentes_familiares: e.target.value})} className={getFieldClass("form-input", 'antecedentes_familiares')} rows="3"></textarea>
+                                                        </div>
+                                                        <div>
+                                                            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                <label className="form-label" style={{marginBottom: 0}}>{t('medicamentosActuales') || 'Medicamentos Actuales'}</label>
+                                                                <button disabled={isProcessingBtn} onClick={() => traducirCampo('medicamentos_actuales', hForm.medicamentos_actuales)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('medicamentos_actuales')}</button>
+                                                            </div>
+                                                            <textarea disabled={isProcessingBtn} value={hForm.medicamentos_actuales} onChange={(e) => setHForm({...hForm, medicamentos_actuales: e.target.value})} className={getFieldClass("form-input", 'medicamentos_actuales')} rows="2"></textarea>
+                                                        </div>
+                                                        <div>
+                                                            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                <label className="form-label" style={{marginBottom: 0}}>{t('habitosSustancias') || 'Hábitos (Sustancias)'}</label>
+                                                                <button disabled={isProcessingBtn} onClick={() => traducirCampo('habitos_sustancias', hForm.habitos_sustancias)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('habitos_sustancias')}</button>
+                                                            </div>
+                                                            <textarea disabled={isProcessingBtn} value={hForm.habitos_sustancias} onChange={(e) => setHForm({...hForm, habitos_sustancias: e.target.value})} className={getFieldClass("form-input", 'habitos_sustancias')} rows="2"></textarea>
+                                                        </div>
+                                                        <div style={{gridColumn: '1 / -1'}}>
+                                                            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                <label className="form-label" style={{marginBottom: 0}}>{t('habitosSueno') || 'Hábitos de Sueño (¿Cómo duerme?)'}</label>
+                                                                <button disabled={isProcessingBtn} onClick={() => traducirCampo('habitos_sueno', hForm.habitos_sueno)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('habitos_sueno')}</button>
+                                                            </div>
+                                                            <textarea disabled={isProcessingBtn} value={hForm.habitos_sueno} onChange={(e) => setHForm({...hForm, habitos_sueno: e.target.value})} className={getFieldClass("form-input", 'habitos_sueno')} rows="2"></textarea>
                                                         </div>
                                                     </div>
+
+                                                    {pacienteSeleccionado.sexo === 'Femenino' && (
+                                                        <div style={{background: 'rgba(236, 72, 153, 0.05)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(236, 72, 153, 0.2)', marginTop: '20px'}}>
+                                                            <h4 style={{color: '#db2777', margin: '0 0 15px 0', fontSize: '1rem'}}><i className="fa-solid fa-venus"></i> {t('ginecoObstetricos') || 'Antecedentes Gineco-Obstétricos'}</h4>
+                                                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px'}}>
+                                                                <div>
+                                                                    <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                        <label className="form-label" style={{marginBottom: 0, color: '#db2777'}}>Gineco-Obstétricos</label>
+                                                                        <button disabled={isProcessingBtn} onClick={() => traducirCampo('gineco_obstetricos', hForm.gineco_obstetricos)} className="btn-action" style={{padding: '2px 6px', fontSize: '0.7rem', background: 'transparent', border: '1px solid #db2777', color: '#db2777', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('gineco_obstetricos')}</button>
+                                                                    </div>
+                                                                    <textarea disabled={isProcessingBtn} value={hForm.gineco_obstetricos} onChange={(e) => setHForm({...hForm, gineco_obstetricos: e.target.value})} className={getFieldClass("form-input", 'gineco_obstetricos')} rows="2" placeholder="Menarca, FUM, Cólicos, Gestaciones..."></textarea>
+                                                                </div>
+                                                                <div>
+                                                                    <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                        <label className="form-label" style={{marginBottom: 0, color: '#db2777'}}>Planificación Familiar</label>
+                                                                        <button disabled={isProcessingBtn} onClick={() => traducirCampo('planificacion_familiar', hForm.planificacion_familiar)} className="btn-action" style={{padding: '2px 6px', fontSize: '0.7rem', background: 'transparent', border: '1px solid #db2777', color: '#db2777', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('planificacion_familiar')}</button>
+                                                                    </div>
+                                                                    <textarea disabled={isProcessingBtn} value={hForm.planificacion_familiar} onChange={(e) => setHForm({...hForm, planificacion_familiar: e.target.value})} className={getFieldClass("form-input", 'planificacion_familiar')} rows="2" placeholder="Método de planificación familiar..."></textarea>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
-                                            )}
+                                            </div>
 
                                             <h3 className="pane-title"><i className="fa-solid fa-yin-yang" style={{color: '#ffb300', marginRight: '10px'}}></i> {t('exploracionFisicaMtc') || 'Exploración Física y MTCh'}</h3>
                                             
@@ -845,20 +1219,35 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                             <div style={{background: 'rgba(255, 179, 0, 0.05)', border: '1px dashed #ffb300', borderRadius: '12px', padding: '25px', display: 'flex', flexDirection: 'column', marginBottom: '35px'}}>
                                                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
                                                     <label style={{fontWeight: 'bold', color: '#d97706', margin: 0, fontSize: '1.1rem'}}><i className="fa-solid fa-pen-nib"></i> {t('redaccionDiagnosticoMTC') || 'Redacción Diagnóstico MTC'}</label>
-                                                    <button disabled={isProcessingBtn} onClick={() => redactarHallazgosMTCh(false)} className="btn-primary" style={{padding: '10px 25px', background: '#f59e0b', border: 'none', borderRadius: '8px', color: 'white', fontWeight: 'bold', cursor: isProcessingBtn ? 'not-allowed' : 'pointer', boxShadow: '0 4px 15px rgba(245, 158, 11, 0.3)', transition: 'all 0.3s'}}>
-                                                        <i className="fa-solid fa-wand-magic-sparkles"></i> {t('autoRedactarHallazgos') || 'Auto-Redactar'}
-                                                    </button>
+                                                    <div style={{display: 'flex', gap: '10px'}}>
+                                                        <button disabled={isProcessingBtn} onClick={() => traducirCampo('mtc_pulso_lengua', hForm.mtc_pulso_lengua)} className="btn-action" style={{padding: '10px 15px', background: 'transparent', border: '1px solid #d97706', color: '#d97706', borderRadius: '8px', fontWeight: 'bold', cursor: isProcessingBtn ? 'not-allowed' : 'pointer', transition: 'all 0.3s'}}>
+                                                            {getTranslateIcon('mtc_pulso_lengua')}
+                                                        </button>
+                                                        <button disabled={isProcessingBtn} onClick={() => redactarHallazgosMTCh(false)} className="btn-primary" style={{padding: '10px 25px', background: '#f59e0b', border: 'none', borderRadius: '8px', color: 'white', fontWeight: 'bold', cursor: isProcessingBtn ? 'not-allowed' : 'pointer', boxShadow: '0 4px 15px rgba(245, 158, 11, 0.3)', transition: 'all 0.3s'}}>
+                                                            <i className="fa-solid fa-wand-magic-sparkles"></i> {t('autoRedactarHallazgos') || 'Auto-Redactar'}
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                                <textarea disabled={isProcessingBtn} value={hForm.mtc_pulso_lengua} onChange={e => setHForm({...hForm, mtc_pulso_lengua: e.target.value})} className="form-input" rows="6" placeholder={t('placeholderMtc') || 'Interpretación clínica...'} style={{borderColor: 'rgba(255, 179, 0, 0.4)', background: 'var(--bg-panel)', fontSize: '1.05rem', lineHeight: '1.5'}}></textarea>
+                                                <textarea disabled={isProcessingBtn} value={hForm.mtc_pulso_lengua} onChange={e => setHForm({...hForm, mtc_pulso_lengua: e.target.value})} className={getFieldClass("form-input", 'mtc_pulso_lengua')} rows="6" placeholder={t('placeholderMtc') || 'Interpretación clínica...'} style={{borderColor: 'rgba(255, 179, 0, 0.4)', background: 'var(--bg-panel)', fontSize: '1.05rem', lineHeight: '1.5'}}></textarea>
                                             </div>
 
                                             <h3 className="pane-title"><i className="fa-solid fa-stethoscope" style={{color: 'var(--success)', marginRight: '10px'}}></i> {t('conclusionPlanTratamiento') || 'Conclusión y Plan'}</h3>
                                             
                                             <div style={{display: 'flex', flexDirection: 'column', gap: '25px'}}>
-                                                <div><label className="form-label">{t('exploracionFisicaAdicional') || 'Exploración Física (Adicional)'}</label><textarea disabled={isProcessingBtn} value={hForm.exploracion_fisica} onChange={(e) => setHForm({...hForm, exploracion_fisica: e.target.value})} className="form-input" rows="2"></textarea></div>
+                                                <div>
+                                                    <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                        <label className="form-label" style={{marginBottom: 0}}>{t('exploracionFisicaAdicional') || 'Exploración Física (Adicional)'}</label>
+                                                        <button disabled={isProcessingBtn} onClick={() => traducirCampo('exploracion_fisica', hForm.exploracion_fisica)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('exploracion_fisica')}</button>
+                                                    </div>
+                                                    <textarea disabled={isProcessingBtn} value={hForm.exploracion_fisica} onChange={(e) => setHForm({...hForm, exploracion_fisica: e.target.value})} className={getFieldClass("form-input", 'exploracion_fisica')} rows="2"></textarea>
+                                                </div>
+                                                
                                                 <div style={{background: 'rgba(22, 163, 74, 0.05)', border: '1px solid rgba(22, 163, 74, 0.2)', padding: '20px', borderRadius: '12px'}}>
-                                                    <label className="form-label" style={{color: 'var(--success)'}}>{t('diagnosticoCie') || 'Diagnóstico Clínico (CIE)'}</label>
-                                                    <textarea disabled={isProcessingBtn} value={hForm.diagnostico_cie} onChange={(e) => setHForm({...hForm, diagnostico_cie: e.target.value})} className="form-input" rows="2"></textarea>
+                                                    <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                        <label className="form-label" style={{color: 'var(--success)', marginBottom: 0}}>{t('diagnosticoCie') || 'Diagnóstico Clínico (CIE)'}</label>
+                                                        <button disabled={isProcessingBtn} onClick={() => traducirCampo('diagnostico_cie', hForm.diagnostico_cie)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--success)', color: 'var(--success)', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('diagnostico_cie')}</button>
+                                                    </div>
+                                                    <textarea disabled={isProcessingBtn} value={hForm.diagnostico_cie} onChange={(e) => setHForm({...hForm, diagnostico_cie: e.target.value})} className={getFieldClass("form-input", 'diagnostico_cie')} rows="2"></textarea>
                                                 </div>
                                                 
                                                 <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px'}}>
@@ -866,6 +1255,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                     <div>
                                                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                                                             <label className="form-label" style={{marginBottom: 0}}>{t('pronostico') || 'Pronóstico'}</label>
+                                                            <button disabled={isProcessingBtn} onClick={() => traducirCampo('pronostico', hForm.pronostico)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('pronostico')}</button>
                                                         </div>
                                                         <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px'}}>
                                                             {pronosticosRapidos.map(p => (
@@ -874,13 +1264,14 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                                 </button>
                                                             ))}
                                                         </div>
-                                                        <textarea disabled={isProcessingBtn} value={hForm.pronostico} onChange={(e) => setHForm({...hForm, pronostico: e.target.value})} className="form-input" rows="5"></textarea>
+                                                        <textarea disabled={isProcessingBtn} value={hForm.pronostico} onChange={(e) => setHForm({...hForm, pronostico: e.target.value})} className={getFieldClass("form-input", 'pronostico')} rows="5"></textarea>
                                                     </div>
                                                     
                                                     {/* 🚀 CHIPS INTELIGENTES DE PLAN DE TRATAMIENTO */}
                                                     <div>
                                                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                                                             <label className="form-label" style={{marginBottom: 0}}>{t('planTratamientoPuntos') || 'Plan de Tratamiento'}</label>
+                                                            <button disabled={isProcessingBtn} onClick={() => traducirCampo('plan_tratamiento', hForm.plan_tratamiento)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: isProcessingBtn ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('plan_tratamiento')}</button>
                                                         </div>
                                                         <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px'}}>
                                                             {planesRapidos.map(p => (
@@ -889,7 +1280,7 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                                 </button>
                                                             ))}
                                                         </div>
-                                                        <textarea disabled={isProcessingBtn} value={hForm.plan_tratamiento} onChange={(e) => setHForm({...hForm, plan_tratamiento: e.target.value})} className="form-input" rows="5"></textarea>
+                                                        <textarea disabled={isProcessingBtn} value={hForm.plan_tratamiento} onChange={(e) => setHForm({...hForm, plan_tratamiento: e.target.value})} className={getFieldClass("form-input", 'plan_tratamiento')} rows="5"></textarea>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1033,7 +1424,10 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
 
                                                         {/* 🚀 FORMULARIO NOTAS DE EVOLUCIÓN CON CHIPS INTELIGENTES */}
                                                         <div>
-                                                            <label className="form-label">{t('evolucion') || 'Evolución y Tolerancia'} *</label>
+                                                            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                <label className="form-label" style={{marginBottom: 0}}>{t('evolucion') || 'Evolución y Tolerancia'} *</label>
+                                                                <button disabled={isProcessingBtn || nForm.estado === 'firmada'} onClick={() => traducirCampo('evolucion', nForm.evolucion)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: (isProcessingBtn || nForm.estado === 'firmada') ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('evolucion')}</button>
+                                                            </div>
                                                             {nForm.estado !== 'firmada' && (
                                                                 <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px'}}>
                                                                     {chipsEvolucion.map(c => (
@@ -1041,11 +1435,14 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                                     ))}
                                                                 </div>
                                                             )}
-                                                            <textarea disabled={isProcessingBtn || nForm.estado === 'firmada'} value={nForm.evolucion} onChange={(e) => setNForm({...nForm, evolucion: e.target.value})} className="form-input" rows="4" placeholder={t('phEvolucion') || "Describe los cambios y la evolución clínica..."}></textarea>
+                                                            <textarea disabled={isProcessingBtn || nForm.estado === 'firmada'} value={nForm.evolucion} onChange={(e) => setNForm({...nForm, evolucion: e.target.value})} className={getFieldClass("form-input", 'evolucion')} rows="4" placeholder={t('phEvolucion') || "Describe los cambios y la evolución clínica..."}></textarea>
                                                         </div>
 
                                                         <div>
-                                                            <label className="form-label">{t('procedimientoTecnica') || 'Procedimiento Aplicado'} *</label>
+                                                            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                <label className="form-label" style={{marginBottom: 0}}>{t('procedimientoTecnica') || 'Procedimiento Aplicado'} *</label>
+                                                                <button disabled={isProcessingBtn || nForm.estado === 'firmada'} onClick={() => traducirCampo('procedimiento_tecnica', nForm.procedimiento_tecnica)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: (isProcessingBtn || nForm.estado === 'firmada') ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('procedimiento_tecnica')}</button>
+                                                            </div>
                                                             {nForm.estado !== 'firmada' && (
                                                                 <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px'}}>
                                                                     {chipsProcedimiento.map(c => (
@@ -1053,10 +1450,16 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                                     ))}
                                                                 </div>
                                                             )}
-                                                            <textarea disabled={isProcessingBtn || nForm.estado === 'firmada'} value={nForm.procedimiento_tecnica} onChange={(e) => setNForm({...nForm, procedimiento_tecnica: e.target.value})} className="form-input" rows="2" placeholder={t('phProcedimiento') || "Técnica, agujas o material..."}></textarea>
+                                                            <textarea disabled={isProcessingBtn || nForm.estado === 'firmada'} value={nForm.procedimiento_tecnica} onChange={(e) => setNForm({...nForm, procedimiento_tecnica: e.target.value})} className={getFieldClass("form-input", 'procedimiento_tecnica')} rows="2" placeholder={t('phProcedimiento') || "Técnica, agujas o material..."}></textarea>
                                                         </div>
 
-                                                        <div><label className="form-label">{t('planIndicaciones') || 'Indicaciones a Paciente'}</label><textarea disabled={isProcessingBtn || nForm.estado === 'firmada'} value={nForm.plan_indicaciones} onChange={(e) => setNForm({...nForm, plan_indicaciones: e.target.value})} className="form-input" rows="2"></textarea></div>
+                                                        <div>
+                                                            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                <label className="form-label" style={{marginBottom: 0}}>{t('planIndicaciones') || 'Indicaciones a Paciente'}</label>
+                                                                <button disabled={isProcessingBtn || nForm.estado === 'firmada'} onClick={() => traducirCampo('plan_indicaciones', nForm.plan_indicaciones)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: (isProcessingBtn || nForm.estado === 'firmada') ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('plan_indicaciones')}</button>
+                                                            </div>
+                                                            <textarea disabled={isProcessingBtn || nForm.estado === 'firmada'} value={nForm.plan_indicaciones} onChange={(e) => setNForm({...nForm, plan_indicaciones: e.target.value})} className={getFieldClass("form-input", 'plan_indicaciones')} rows="2"></textarea>
+                                                        </div>
                                                     </div>
 
                                                     <div style={{background: 'var(--bg-lighter)', padding: '25px', borderRadius: '12px', border: '1px dashed var(--accent)', marginBottom: '30px'}}>
@@ -1065,7 +1468,13 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                             <div style={{gridColumn: '1 / -1'}}><label className="form-label">{t('puntosAcupuntura')}</label><input disabled={isProcessingBtn || nForm.estado === 'firmada'} type="text" value={nForm.puntos_acupuntura} onChange={(e) => setNForm({...nForm, puntos_acupuntura: e.target.value})} className="form-input" placeholder={t('phPuntos')} style={{textTransform: 'uppercase'}} /></div>
                                                             <div><label className="form-label">{t('tiempoRetencion')}</label><input disabled={isProcessingBtn || nForm.estado === 'firmada'} type="number" value={nForm.tiempo_retencion_minutos} onChange={(e) => setNForm({...nForm, tiempo_retencion_minutos: e.target.value})} className="form-input" placeholder={t('phRetencion')} /></div>
                                                             <div><label className="form-label">{t('sesionesRequeridas')}</label><input disabled={isProcessingBtn || nForm.estado === 'firmada'} type="number" value={nForm.sesiones_requeridas} onChange={(e) => setNForm({...nForm, sesiones_requeridas: e.target.value})} className="form-input" placeholder={t('phSesiones')} /></div>
-                                                            <div style={{gridColumn: '1 / -1'}}><label className="form-label">{t('diagnosticoSesion') || 'Diagnóstico de la Sesión'} *</label><textarea disabled={isProcessingBtn || nForm.estado === 'firmada'} value={nForm.diagnostico_sesion} onChange={(e) => setNForm({...nForm, diagnostico_sesion: e.target.value})} className="form-input" rows="2" placeholder={t('phDiagnosticoSesion')}></textarea></div>
+                                                            <div style={{gridColumn: '1 / -1'}}>
+                                                                <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px'}}>
+                                                                    <label className="form-label" style={{marginBottom: 0}}>{t('diagnosticoSesion') || 'Diagnóstico de la Sesión'} *</label>
+                                                                    <button disabled={isProcessingBtn || nForm.estado === 'firmada'} onClick={() => traducirCampo('diagnostico_sesion', nForm.diagnostico_sesion)} className="btn-action" style={{padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: '4px', cursor: (isProcessingBtn || nForm.estado === 'firmada') ? 'not-allowed' : 'pointer'}}>{getTranslateIcon('diagnostico_sesion')}</button>
+                                                                </div>
+                                                                <textarea disabled={isProcessingBtn || nForm.estado === 'firmada'} value={nForm.diagnostico_sesion} onChange={(e) => setNForm({...nForm, diagnostico_sesion: e.target.value})} className={getFieldClass("form-input", 'diagnostico_sesion')} rows="2" placeholder={t('phDiagnosticoSesion')}></textarea>
+                                                            </div>
                                                         </div>
                                                     </div>
 
@@ -1094,14 +1503,32 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                                                     )}
                                                 </div>
 
-                                                {/* 🌟 LADO DERECHO: Historial Contextual Rápido */}
+                                                {/* 🌟 LADO DERECHO: Historial Contextual Rápido y Alertas */}
                                                 <div style={{background: 'var(--bg-main)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)', position: 'sticky', top: '0', maxHeight: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column'}}>
                                                     <h4 style={{margin: '0 0 15px 0', color: 'var(--text-main)', fontSize: '1.05rem', display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px'}}>
-                                                        <i className="fa-solid fa-clock-rotate-left" style={{color: 'var(--accent)', marginRight: '8px'}}></i> {t('historialPrevioCorto') || 'Historial Previo'}
+                                                        <i className="fa-solid fa-clock-rotate-left" style={{color: 'var(--accent)', marginRight: '8px'}}></i> {t('historialPrevioCorto') || 'Historial Previo y Riesgos'}
                                                     </h4>
                                                     
                                                     <div style={{overflowY: 'auto', flex: 1, paddingRight: '5px', display: 'flex', flexDirection: 'column', gap: '12px'}}>
                                                         
+                                                        {/* 🚀 NUEVO: Alertas Clínicas */}
+                                                        {pacienteSeleccionado?.alertas_clinicas?.filter(a => a.activa).length > 0 && (
+                                                            <div style={{background: 'rgba(239, 68, 68, 0.05)', padding: '12px', borderRadius: '8px', borderLeft: '4px solid #ef4444'}}>
+                                                                <h5 style={{color: '#ef4444', margin: '0 0 5px 0', fontSize: '0.85rem'}}><i className="fa-solid fa-triangle-exclamation"></i> {t('alertasRestrictivas') || 'Alertas Clínicas'}</h5>
+                                                                {pacienteSeleccionado.alertas_clinicas.filter(a => a.activa).map(a => (
+                                                                    <div key={a.id} style={{fontSize: '0.75rem', color: 'var(--text-main)', fontWeight: 'bold'}}>• {a.tipo_alerta}</div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        {/* 🚀 NUEVO: Resumen de Antecedentes */}
+                                                        {hForm.antecedentes_personales && (
+                                                            <div style={{background: 'var(--bg-panel)', padding: '12px', borderRadius: '8px', borderLeft: '4px solid #f59e0b', border: '1px solid var(--border-color)'}}>
+                                                                <h5 style={{color: '#d97706', margin: '0 0 5px 0', fontSize: '0.85rem'}}><i className="fa-solid fa-file-medical"></i> {t('aPersonales') || 'A. Personales'}</h5>
+                                                                <div style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>{hForm.antecedentes_personales.substring(0, 100)}{hForm.antecedentes_personales.length > 100 ? '...' : ''}</div>
+                                                            </div>
+                                                        )}
+
                                                         {/* Tarjeta de la Historia Base */}
                                                         {historia && (
                                                             <div style={{background: 'var(--bg-panel)', padding: '15px', borderRadius: '10px', borderLeft: '4px solid var(--accent)', border: '1px solid var(--border-color)'}}>
@@ -1200,6 +1627,30 @@ export default function EscritorioMedico({ branch = 'napoles', perfilActual }) {
                 .med-chip { padding: 8px 12px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; align-items: center; gap: 6px; border: 1px solid transparent; }
                 .med-chip:hover { transform: translateY(-2px); filter: brightness(1.1); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
                 .med-chip:active { transform: translateY(0); }
+
+                /* 🌟 ANIMACIONES DE TRADUCCIÓN (NUEVO) */
+                .translating-glow {
+                    animation: translatePulse 1.5s infinite;
+                    border-color: var(--accent) !important;
+                    box-shadow: 0 0 15px rgba(2, 136, 209, 0.4) !important;
+                    pointer-events: none;
+                }
+                .text-blur {
+                    color: transparent !important;
+                    text-shadow: 0 0 6px rgba(130, 150, 200, 0.8);
+                }
+                .translated-success {
+                    animation: successFlash 1.2s ease-out forwards;
+                }
+                @keyframes translatePulse {
+                    0% { box-shadow: 0 0 0 0 rgba(2, 136, 209, 0.4); }
+                    70% { box-shadow: 0 0 0 10px rgba(2, 136, 209, 0); }
+                    100% { box-shadow: 0 0 0 0 rgba(2, 136, 209, 0); }
+                }
+                @keyframes successFlash {
+                    0% { background-color: rgba(16, 185, 129, 0.2); border-color: var(--success); }
+                    100% { background-color: var(--bg-main); border-color: var(--border-color); }
+                }
 
                 .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
                 .animate-slide-up-row { opacity: 0; animation: slideUpRow 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards; }

@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google-cloud/translate": "^10.1.0",
     "@supabase/supabase-js": "^2.110.0",
     "googleapis": "^178.0.0",
     "moment": "^2.30.1",
